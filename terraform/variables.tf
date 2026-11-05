@@ -90,3 +90,9 @@ variable "fleet_azure_package_version" {
   type        = string
   default     = "1.34.1"
 }
+
+variable "tags" {
+  description = "Organisation-mandated tags applied to all taggable resources (division, org, keep-until, team, project)"
+  type        = map(string)
+  default     = {}
+}

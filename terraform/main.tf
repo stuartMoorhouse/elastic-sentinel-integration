@@ -72,8 +72,9 @@ resource "random_string" "suffix" {
 
 locals {
   suffix = random_string.suffix.result
-  tags = {
-    project = "elastic-sentinel-integration"
-    managed = "terraform"
-  }
+  # Organisation-mandated tags (var.tags) plus ManagedBy. Applied explicitly to every
+  # taggable resource because azurerm has no provider-level default_tags.
+  tags = merge(var.tags, {
+    ManagedBy = "terraform"
+  })
 }

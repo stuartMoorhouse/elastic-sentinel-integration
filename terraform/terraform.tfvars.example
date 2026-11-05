@@ -11,3 +11,12 @@ operator_ip_cidr = "203.0.113.4/32"
 # elastic_deployment_template_id = "azure-general-purpose"
 # elastic_stack_version_regex    = "latest"
 # event_hub_sku                  = "Standard"
+
+# Organisation-mandated tags (applied to all taggable resources). Update keep-until for each deploy.
+tags = {
+  division   = "field"
+  org        = "sa"
+  keep-until = "YYYY-MM-DD"
+  team       = "your_team"
+  project    = "your_project"
+}
