@@ -31,6 +31,6 @@ Acceptance check 10 (`terraform destroy` leaves nothing behind) is manual.
 - Fleet agents: `GET /api/fleet/agents`; healthy means status `online` or `healthy`. Agent policies: `GET /api/fleet/agent_policies`.
 - Rules: `GET /api/detection_engine/rules/_find`; alerts live in `.alerts-security.alerts-default` with field `kibana.alert.rule.name`.
 - The Sentinel incident id is read from `external_service.external_id` on `GET /api/cases/{id}`. If the connector does not auto-push on create, push the case manually in the UI.
-- Check 7 expects Sentinel status `Active` for an in-progress case, which depends on the Logic App status mapping. Check 6 matches NRT incidents by a title containing "Elastic" or the rule name.
+- Check 7 expects Sentinel status `Active` for an in-progress case, which depends on the Logic App status mapping. Check 6 looks for a SecurityIncident titled "Elastic alert: <rule name>" created by the alert Logic App. Both Sentinel-facing Logic Apps require the Sentinel API connection to be authorized once in the portal.
 - Writing to a `logs-*-*` name relies on the `logs` data stream template auto-creating the data stream.
 - Sentinel REST API versions used: incidents 2023-02-01, onboardingStates 2024-03-01.

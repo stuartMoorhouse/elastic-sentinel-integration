@@ -66,5 +66,5 @@ resource "azurerm_log_analytics_data_export_rule" "to_eventhub" {
   table_names             = var.export_table_names
   enabled                 = true
 
-  depends_on = [azurerm_sentinel_log_analytics_workspace_onboarding.main, azurerm_monitor_diagnostic_setting.activity]
+  depends_on = [azurerm_sentinel_log_analytics_workspace_onboarding.main]
 }

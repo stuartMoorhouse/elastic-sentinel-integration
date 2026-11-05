@@ -20,10 +20,7 @@ resource "local_file" "shared_env" {
   depends_on = [
     azurerm_linux_virtual_machine.main,
     azurerm_monitor_data_collection_rule_association.syslog,
-    azurerm_sentinel_alert_rule_nrt.elastic_alerts,
     azurerm_log_analytics_data_export_rule.to_eventhub,
-    azurerm_role_assignment.upsert_sentinel,
-    azurerm_role_assignment.get_sentinel,
     azurerm_logic_app_action_custom.upsert_route,
     azurerm_logic_app_action_custom.get_response,
     azurerm_logic_app_action_custom.alert_response,

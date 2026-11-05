@@ -1,10 +1,9 @@
 locals {
-  sentinel_api_version = "2023-02-01"
-  incident_base_url    = "https://management.azure.com${azurerm_log_analytics_workspace.main.id}/providers/Microsoft.SecurityInsights/incidents"
-  arm_auth = {
-    type     = "ManagedServiceIdentity"
-    audience = "https://management.azure.com/"
-  }
+  sentinel_api_id = "/subscriptions/${var.subscription_id}/providers/Microsoft.Web/locations/${azurerm_resource_group.main.location}/managedApis/azuresentinel"
+  # Sentinel connector actions take the incident ARM id. The Kibana-facing id is the
+  # incident name (GUID); the ARM id is rebuilt from it.
+  incident_arm_prefix   = "${azurerm_log_analytics_workspace.main.id}/providers/Microsoft.SecurityInsights/Incidents"
+  sentinel_conn_host    = { connection = { name = "@parameters('$connections')['azuresentinel']['connectionId']" } }
   trigger_schema_upsert = file("${path.module}/../config/logicapps/incident-upsert.schema.json")
   trigger_schema_get    = file("${path.module}/../config/logicapps/incident-get.schema.json")
   trigger_schema_alert  = file("${path.module}/../config/logicapps/elastic-alert.schema.json")
@@ -15,15 +14,43 @@ locals {
   status_expr = "@if(equals(triggerBody()?['status'],'closed'),'Closed',if(equals(triggerBody()?['status'],'in-progress'),'Active','New'))"
 }
 
+# Sentinel API connection (OAuth). Created by Terraform but must be authorized ONCE in the
+# portal after apply: Resource group > API connection "${var.prefix}-azuresentinel" >
+# Edit API connection > Authorize > Save. No role assignments are needed (the connection
+# runs as the person who authorizes it).
+resource "azapi_resource" "sentinel_connection" {
+  type      = "Microsoft.Web/connections@2016-06-01"
+  name      = "${var.prefix}-azuresentinel"
+  location  = azurerm_resource_group.main.location
+  parent_id = azurerm_resource_group.main.id
+  tags      = local.tags
+
+  body = {
+    properties = {
+      displayName = "${var.prefix}-azuresentinel"
+      api         = { id = local.sentinel_api_id }
+    }
+  }
+}
+
+locals {
+  connections_param = jsonencode({
+    azuresentinel = {
+      connectionId   = azapi_resource.sentinel_connection.id
+      connectionName = "azuresentinel"
+      id             = local.sentinel_api_id
+    }
+  })
+}
+
 resource "azurerm_logic_app_workflow" "incident_upsert" {
   name                = "${var.prefix}-elastic-upsert-incident"
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
   tags                = local.tags
 
-  identity {
-    type = "SystemAssigned"
-  }
+  workflow_parameters = { "$connections" = jsonencode({ type = "Object", defaultValue = {} }) }
+  parameters          = { "$connections" = local.connections_param }
 }
 
 resource "azurerm_logic_app_workflow" "incident_get" {
@@ -32,9 +59,8 @@ resource "azurerm_logic_app_workflow" "incident_get" {
   resource_group_name = azurerm_resource_group.main.name
   tags                = local.tags
 
-  identity {
-    type = "SystemAssigned"
-  }
+  workflow_parameters = { "$connections" = jsonencode({ type = "Object", defaultValue = {} }) }
+  parameters          = { "$connections" = local.connections_param }
 }
 
 resource "azurerm_logic_app_workflow" "alert" {
@@ -43,28 +69,8 @@ resource "azurerm_logic_app_workflow" "alert" {
   resource_group_name = azurerm_resource_group.main.name
   tags                = local.tags
 
-  identity {
-    type = "SystemAssigned"
-  }
-}
-
-# --- Role assignments (no OAuth authorize step needed) ---
-resource "azurerm_role_assignment" "upsert_sentinel" {
-  scope                = azurerm_log_analytics_workspace.main.id
-  role_definition_name = "Microsoft Sentinel Responder"
-  principal_id         = azurerm_logic_app_workflow.incident_upsert.identity[0].principal_id
-}
-
-resource "azurerm_role_assignment" "get_sentinel" {
-  scope                = azurerm_log_analytics_workspace.main.id
-  role_definition_name = "Microsoft Sentinel Reader"
-  principal_id         = azurerm_logic_app_workflow.incident_get.identity[0].principal_id
-}
-
-resource "azurerm_role_assignment" "alert_dcr" {
-  scope                = azurerm_monitor_data_collection_rule.alerts.id
-  role_definition_name = "Monitoring Metrics Publisher"
-  principal_id         = azurerm_logic_app_workflow.alert.identity[0].principal_id
+  workflow_parameters = { "$connections" = jsonencode({ type = "Object", defaultValue = {} }) }
+  parameters          = { "$connections" = local.connections_param }
 }
 
 # ============ (a) create / update / comment incident ============
@@ -75,29 +81,16 @@ resource "azurerm_logic_app_trigger_http_request" "upsert" {
   schema       = local.trigger_schema_upsert
 }
 
+# Existing incident name (GUID) for update/comment; empty for create.
 resource "azurerm_logic_app_action_custom" "upsert_id" {
   name         = "Incident_Id"
   logic_app_id = azurerm_logic_app_workflow.incident_upsert.id
   body = jsonencode({
     type     = "Compose"
-    inputs   = "@if(equals(triggerBody()?['action'],'create'),guid(),coalesce(triggerBody()?['sentinel_incident_id'],''))"
+    inputs   = "@coalesce(triggerBody()?['sentinel_incident_id'],'')"
     runAfter = {}
   })
   depends_on = [azurerm_logic_app_trigger_http_request.upsert]
-}
-
-resource "azurerm_logic_app_action_custom" "upsert_labels" {
-  name         = "Labels"
-  logic_app_id = azurerm_logic_app_workflow.incident_upsert.id
-  body = jsonencode({
-    type = "Select"
-    inputs = {
-      from   = "@coalesce(triggerBody()?['tags'],json('[]'))"
-      select = { labelName = "@string(item())" }
-    }
-    runAfter = { Incident_Id = ["Succeeded"] }
-  })
-  depends_on = [azurerm_logic_app_action_custom.upsert_id]
 }
 
 resource "azurerm_logic_app_action_custom" "upsert_props" {
@@ -110,11 +103,10 @@ resource "azurerm_logic_app_action_custom" "upsert_props" {
       description = "@concat(coalesce(triggerBody()?['description'],''),' (Elastic Security case ',coalesce(triggerBody()?['kibana_case_id'],'n/a'),')')"
       severity    = local.severity_expr
       status      = local.status_expr
-      labels      = "@body('Labels')"
     }
-    runAfter = { Labels = ["Succeeded"] }
+    runAfter = { Incident_Id = ["Succeeded"] }
   })
-  depends_on = [azurerm_logic_app_action_custom.upsert_labels]
+  depends_on = [azurerm_logic_app_action_custom.upsert_id]
 }
 
 resource "azurerm_logic_app_action_custom" "upsert_route" {
@@ -128,13 +120,17 @@ resource "azurerm_logic_app_action_custom" "upsert_route" {
         case = "create"
         actions = {
           Create_Incident = {
-            type = "Http"
+            type = "ApiConnection"
             inputs = {
-              method         = "PUT"
-              uri            = "${local.incident_base_url}/@{outputs('Incident_Id')}?api-version=${local.sentinel_api_version}"
-              headers        = { "Content-Type" = "application/json" }
-              body           = { properties = "@outputs('Props')" }
-              authentication = local.arm_auth
+              host   = local.sentinel_conn_host
+              method = "put"
+              path   = "/Incidents/subscriptions/@{encodeURIComponent('${var.subscription_id}')}/resourceGroups/@{encodeURIComponent('${azurerm_resource_group.main.name}')}/workspaces/@{encodeURIComponent('${azurerm_log_analytics_workspace.main.name}')}"
+              body = {
+                title       = "@outputs('Props')?['title']"
+                description = "@outputs('Props')?['description']"
+                severity    = "@outputs('Props')?['severity']"
+                status      = "@outputs('Props')?['status']"
+              }
             }
             runAfter = {}
           }
@@ -143,7 +139,7 @@ resource "azurerm_logic_app_action_custom" "upsert_route" {
             inputs = {
               statusCode = 200
               headers    = { "Content-Type" = "application/json" }
-              body       = { sentinel_incident_id = "@{outputs('Incident_Id')}" }
+              body       = { sentinel_incident_id = "@{body('Create_Incident')?['name']}" }
             }
             runAfter = { Create_Incident = ["Succeeded"] }
           }
@@ -153,16 +149,14 @@ resource "azurerm_logic_app_action_custom" "upsert_route" {
         case = "update"
         actions = {
           Update_Incident = {
-            type = "Http"
+            type = "ApiConnection"
             inputs = {
-              method  = "PUT"
-              uri     = "${local.incident_base_url}/@{outputs('Incident_Id')}?api-version=${local.sentinel_api_version}"
-              headers = { "Content-Type" = "application/json" }
-              # Sentinel requires a classification when an incident is closed.
-              body = {
-                properties = "@if(equals(outputs('Props')?['status'],'Closed'),addProperty(outputs('Props'),'classification','Undetermined'),outputs('Props'))"
-              }
-              authentication = local.arm_auth
+              host   = local.sentinel_conn_host
+              method = "put"
+              path   = "/Incidents"
+              # UNVERIFIED: Sentinel requires a classification when closing; the connector's
+              # classification field is dynamic. Adjust after checking the connector in the portal.
+              body = "@if(equals(outputs('Props')?['status'],'Closed'),json(concat('{\"incidentArmId\":\"${local.incident_arm_prefix}/',outputs('Incident_Id'),'\",\"title\":\"',outputs('Props')?['title'],'\",\"severity\":\"',outputs('Props')?['severity'],'\",\"status\":\"Closed\",\"classification\":{\"ClassificationAndReason\":\"Undetermined\"}}')),json(concat('{\"incidentArmId\":\"${local.incident_arm_prefix}/',outputs('Incident_Id'),'\",\"title\":\"',outputs('Props')?['title'],'\",\"severity\":\"',outputs('Props')?['severity'],'\",\"status\":\"',outputs('Props')?['status'],'\"}')))"
             }
             runAfter = {}
           }
@@ -181,13 +175,15 @@ resource "azurerm_logic_app_action_custom" "upsert_route" {
         case = "comment"
         actions = {
           Add_Comment = {
-            type = "Http"
+            type = "ApiConnection"
             inputs = {
-              method         = "PUT"
-              uri            = "${local.incident_base_url}/@{outputs('Incident_Id')}/comments/@{guid()}?api-version=${local.sentinel_api_version}"
-              headers        = { "Content-Type" = "application/json" }
-              body           = { properties = { message = "@{coalesce(triggerBody()?['comment'],'')}" } }
-              authentication = local.arm_auth
+              host   = local.sentinel_conn_host
+              method = "post"
+              path   = "/Incidents/Comment"
+              body = {
+                incidentArmId = "${local.incident_arm_prefix}/@{outputs('Incident_Id')}"
+                message       = "@{coalesce(triggerBody()?['comment'],'')}"
+              }
             }
             runAfter = {}
           }
@@ -232,11 +228,12 @@ resource "azurerm_logic_app_action_custom" "get_incident" {
   name         = "Get_Incident"
   logic_app_id = azurerm_logic_app_workflow.incident_get.id
   body = jsonencode({
-    type = "Http"
+    type = "ApiConnection"
     inputs = {
-      method         = "GET"
-      uri            = "${local.incident_base_url}/@{triggerOutputs()['queries']['sentinel_incident_id']}?api-version=${local.sentinel_api_version}"
-      authentication = local.arm_auth
+      host   = local.sentinel_conn_host
+      method = "post"
+      path   = "/Incidents"
+      body   = { incidentArmId = "${local.incident_arm_prefix}/@{triggerOutputs()['queries']['sentinel_incident_id']}" }
     }
     runAfter = {}
   })
@@ -264,7 +261,7 @@ resource "azurerm_logic_app_action_custom" "get_response" {
   depends_on = [azurerm_logic_app_action_custom.get_incident]
 }
 
-# ============ (c) Elastic alert -> Log Analytics (Logs Ingestion API) ============
+# ============ (c) Elastic alert -> Sentinel incident (direct, via the Sentinel connection) ============
 resource "azurerm_logic_app_trigger_http_request" "alert" {
   name         = "request"
   logic_app_id = azurerm_logic_app_workflow.alert.id
@@ -272,36 +269,25 @@ resource "azurerm_logic_app_trigger_http_request" "alert" {
   schema       = local.trigger_schema_alert
 }
 
-resource "azurerm_logic_app_action_custom" "alert_ingest" {
-  name         = "Send_To_Log_Analytics"
+resource "azurerm_logic_app_action_custom" "alert_incident" {
+  name         = "Create_Sentinel_Incident"
   logic_app_id = azurerm_logic_app_workflow.alert.id
   body = jsonencode({
-    type = "Http"
+    type = "ApiConnection"
     inputs = {
-      method  = "POST"
-      uri     = "${azurerm_monitor_data_collection_endpoint.alerts.logs_ingestion_endpoint}/dataCollectionRules/${azurerm_monitor_data_collection_rule.alerts.immutable_id}/streams/Custom-ElasticAlerts_CL?api-version=2023-01-01"
-      headers = { "Content-Type" = "application/json" }
-      body = [{
-        TimeGenerated      = "@utcNow()"
-        rule_name_s        = "@string(coalesce(triggerBody()?['rule_name'],''))"
-        rule_id_s          = "@string(coalesce(triggerBody()?['rule_id'],''))"
-        severity_s         = "@string(coalesce(triggerBody()?['severity'],''))"
-        risk_score_s       = "@string(coalesce(triggerBody()?['risk_score'],''))"
-        reason_s           = "@string(coalesce(triggerBody()?['reason'],''))"
-        host_name_s        = "@string(coalesce(triggerBody()?['host_name'],''))"
-        message_s          = "@string(coalesce(triggerBody()?['message'],''))"
-        alert_id_s         = "@string(coalesce(triggerBody()?['alert_id'],''))"
-        kibana_alert_url_s = "@string(coalesce(triggerBody()?['kibana_alert_url'],''))"
-        timestamp_s        = "@string(coalesce(triggerBody()?['timestamp'],''))"
-      }]
-      authentication = {
-        type     = "ManagedServiceIdentity"
-        audience = "https://monitor.azure.com/"
+      host   = local.sentinel_conn_host
+      method = "put"
+      path   = "/Incidents/subscriptions/@{encodeURIComponent('${var.subscription_id}')}/resourceGroups/@{encodeURIComponent('${azurerm_resource_group.main.name}')}/workspaces/@{encodeURIComponent('${azurerm_log_analytics_workspace.main.name}')}"
+      body = {
+        title       = "@concat('Elastic alert: ',coalesce(triggerBody()?['rule_name'],'unknown rule'))"
+        description = "@concat('Reason: ',coalesce(triggerBody()?['reason'],''),' | Host: ',coalesce(triggerBody()?['host_name'],''),' | Message: ',coalesce(triggerBody()?['message'],''),' | Risk score: ',string(coalesce(triggerBody()?['risk_score'],'')),' | Alert: ',coalesce(triggerBody()?['kibana_alert_url'],''))"
+        severity    = local.severity_expr
+        status      = "New"
       }
     }
     runAfter = {}
   })
-  depends_on = [azurerm_logic_app_trigger_http_request.alert, azurerm_role_assignment.alert_dcr]
+  depends_on = [azurerm_logic_app_trigger_http_request.alert]
 }
 
 resource "azurerm_logic_app_action_custom" "alert_response" {
@@ -311,9 +297,9 @@ resource "azurerm_logic_app_action_custom" "alert_response" {
     type = "Response"
     inputs = {
       statusCode = 200
-      body       = { status = "ingested" }
+      body       = { status = "incident created", sentinel_incident_id = "@{body('Create_Sentinel_Incident')?['name']}" }
     }
-    runAfter = { Send_To_Log_Analytics = ["Succeeded"] }
+    runAfter = { Create_Sentinel_Incident = ["Succeeded"] }
   })
-  depends_on = [azurerm_logic_app_action_custom.alert_ingest]
+  depends_on = [azurerm_logic_app_action_custom.alert_incident]
 }

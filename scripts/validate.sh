@@ -103,20 +103,18 @@ check5() {
     || record 5 "Detection alert fired" TIMEOUT "no alert for '$RULE_NAME' within 5 min (rule must be enabled; run_demo.sh executed?)"
 }
 
-# 6 -- alert in ElasticAlerts_CL and Sentinel incident
+# 6 -- Elastic alert pushed directly to Sentinel as an incident (via the alert Logic App)
 _la_rows() { # kql -> sets LA_JSON, succeeds if non-empty
   LA_JSON="$(la_query "$1" 2>/dev/null)" || return 1
   jq -e 'length > 0' <<<"$LA_JSON" >/dev/null
 }
 check6() {
-  local d=""
-  if poll 600 30 _la_rows "ElasticAlerts_CL | take 5"; then d="ElasticAlerts_CL rows=$(jq length <<<"$LA_JSON")"
-  else record 6 "Alert in ElasticAlerts_CL and Sentinel incident" TIMEOUT "no ElasticAlerts_CL rows within 10 min"; return; fi
-  # Incident title comes from the NRT rule; match Elastic-related titles created since the run.
-  if poll 600 30 _la_rows "SecurityIncident | where CreatedTime >= datetime($RUN_ISO) | where Title has 'Elastic' or Title has '$RULE_NAME' | take 5"; then
-    record 6 "Alert in ElasticAlerts_CL and Sentinel incident" PASS "$d; incident=$(jq -r '.[0].Title' <<<"$LA_JSON")"
+  local name="Elastic alert appears as a Sentinel incident"
+  # The alert Logic App titles incidents "Elastic alert: <rule name>".
+  if poll 600 30 _la_rows "SecurityIncident | where CreatedTime >= datetime($RUN_ISO) | where Title startswith 'Elastic alert' | take 5"; then
+    record 6 "$name" PASS "incident=$(jq -r '.[0].Title' <<<"$LA_JSON")"
   else
-    record 6 "Alert in ElasticAlerts_CL and Sentinel incident" TIMEOUT "$d; no SecurityIncident from NRT rule within 10 min"
+    record 6 "$name" TIMEOUT "no 'Elastic alert' SecurityIncident within 10 min (is the Sentinel API connection authorized?)"
   fi
 }
 

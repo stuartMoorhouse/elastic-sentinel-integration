@@ -26,9 +26,9 @@ variable "operator_ip_cidr" {
 }
 
 variable "vm_size" {
-  description = "VM size for the Elastic Agent / syslog host"
+  description = "VM size for the Elastic Agent / syslog host (Standard_B2s has no capacity in eastus)"
   type        = string
-  default     = "Standard_B2s"
+  default     = "Standard_B2als_v2"
 }
 
 variable "elastic_region" {
@@ -76,19 +76,19 @@ variable "log_analytics_retention_days" {
 variable "export_table_names" {
   description = "Log Analytics tables exported to Event Hubs (must be supported by data export)"
   type        = list(string)
-  default     = ["Syslog", "AzureActivity", "SecurityAlert", "SecurityIncident"]
+  default     = ["Syslog", "SecurityAlert", "SecurityIncident"]
 }
 
 variable "fleet_system_package_version" {
   description = "Fleet System integration package version (check https://epr.elastic.co/search?package=system&kibana.version=<stack>)"
   type        = string
-  default     = "2.7.2"
+  default     = "3.4.0"
 }
 
 variable "fleet_azure_package_version" {
   description = "Fleet Azure Logs integration package version"
   type        = string
-  default     = "1.34.1"
+  default     = "1.40.3"
 }
 
 variable "tags" {

@@ -8,11 +8,10 @@ Static configuration consumed by Terraform via file() / templatefile(). No secre
 |---|---|---|
 | logicapps/incident-upsert.schema.json | Request trigger schema for create/update/comment of Sentinel incidents (fields: action, sentinel_incident_id, title, description, severity, status, tags, comment, kibana_case_id) | Logic App HTTP request trigger (azurerm_logic_app_trigger_http_request.schema) |
 | logicapps/incident-get.schema.json | Doc/minimal schema for the get-incident Logic App; id arrives as query parameter sentinel_incident_id; response must have top-level `title` | Logic App HTTP request trigger |
-| logicapps/elastic-alert.schema.json | Request trigger schema for pushed Elastic alerts | Logic App HTTP request trigger (alert to Log Analytics) |
+| logicapps/elastic-alert.schema.json | Request trigger schema for pushed Elastic alerts | Logic App HTTP request trigger (alert to Sentinel incident) |
 | kibana/webhook-case-connector.json | Fields of the .cases-webhook connector: create/update/comment bodies, response keys, get/view URL templates, plus create/update/comment URLs | elasticstack_kibana_action_connector (connector_type_id `.cases-webhook`), POST /api/actions/connector |
 | kibana/rule-action-body.json | Body of the Webhook rule action; keys match elastic-alert.schema.json | `actions[].params.body` of the detection rule (elasticstack_kibana_security_detection_rule) |
 | kibana/rule-malware.json | Detection rule "Sentinel Test Rule" (query/kuery `message:malware`, 1m, medium, 47) | POST /api/detection_engine/rules |
-| sentinel/nrt-query.kql | KQL for the NRT rule over ElasticAlerts_CL | azurerm_sentinel_alert_rule_nrt.query |
 | fleet/azure-eventhub-input.json | Azure Event Hub input vars for the Fleet package policy (azure_logs) | elasticstack_fleet_integration_policy |
 
 ## Placeholders
