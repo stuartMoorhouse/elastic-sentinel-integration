@@ -1,0 +1,13 @@
+subscription_id  = "00000000-0000-0000-0000-000000000000"
+tenant_id        = "00000000-0000-0000-0000-000000000000"
+location         = "eastus"
+prefix           = "elastic-sentinel"
+operator_ip_cidr = "203.0.113.4/32"
+
+# Optional overrides
+# vm_size                        = "Standard_B2s"
+# vm_encryption_at_host          = true
+# elastic_region                 = "azure-eastus2"
+# elastic_deployment_template_id = "azure-general-purpose"
+# elastic_stack_version_regex    = "latest"
+# event_hub_sku                  = "Standard"

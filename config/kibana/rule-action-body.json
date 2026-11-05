@@ -1,0 +1,12 @@
+{
+  "rule_name": "{{rule.name}}",
+  "rule_id": "{{rule.id}}",
+  "severity": "{{context.rule.severity}}",
+  "risk_score": "{{context.rule.risk_score}}",
+  "reason": "{{context.alerts.0.kibana.alert.reason}}",
+  "timestamp": "{{context.timestamp}}",
+  "host_name": "{{context.alerts.0.host.name}}",
+  "message": "{{context.alerts.0.message}}",
+  "alert_id": "{{alert.id}}",
+  "kibana_alert_url": "{{kibanaBaseUrl}}/app/security/alerts/redirect/{{alert.uuid}}"
+}

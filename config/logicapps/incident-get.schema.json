@@ -1,0 +1,7 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Get Sentinel incident (query parameter based)",
+  "description": "Called by Kibana with GET <trigger url>&sentinel_incident_id=<id>. No request body; the id is read from the query string (triggerOutputs()['queries']['sentinel_incident_id']). The response body must contain a top-level 'title' (Kibana get_incident_response_external_title_key).",
+  "type": "object",
+  "properties": {}
+}

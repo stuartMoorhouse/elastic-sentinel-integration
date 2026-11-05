@@ -1,0 +1,22 @@
+#!/bin/bash -xe
+exec > >(tee -a /var/log/user-data.log) 2>&1
+
+# Installs Elastic Agent ${elastic_version} and enrolls it to Fleet.
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -y
+apt-get install -y curl tar ca-certificates
+
+cd /tmp
+curl -fsSL -O "https://artifacts.elastic.co/downloads/beats/elastic-agent/elastic-agent-${elastic_version}-linux-x86_64.tar.gz"
+tar xzf "elastic-agent-${elastic_version}-linux-x86_64.tar.gz"
+cd "elastic-agent-${elastic_version}-linux-x86_64"
+
+set +x # keep the enrollment token out of the log
+./elastic-agent install --non-interactive \
+  --url="${fleet_url}" \
+  --enrollment-token="${enrollment_token}"
+
+set -x
+cd /tmp
+rm -rf "elastic-agent-${elastic_version}-linux-x86_64" "elastic-agent-${elastic_version}-linux-x86_64.tar.gz"
+echo "elastic-agent install complete"

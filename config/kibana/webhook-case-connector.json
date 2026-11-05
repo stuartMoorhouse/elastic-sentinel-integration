@@ -1,0 +1,12 @@
+{
+  "create_incident_json": "{\"action\": \"create\", \"kibana_case_id\": {{{case.id}}}, \"title\": {{{case.title}}}, \"description\": {{{case.description}}}, \"severity\": {{{case.severity}}}, \"status\": {{{case.status}}}, \"tags\": {{{case.tags}}}}",
+  "update_incident_json": "{\"action\": \"update\", \"kibana_case_id\": {{{case.id}}}, \"title\": {{{case.title}}}, \"description\": {{{case.description}}}, \"severity\": {{{case.severity}}}, \"status\": {{{case.status}}}, \"tags\": {{{case.tags}}}, \"sentinel_incident_id\": {{{external.system.id}}}}",
+  "create_comment_json": "{\"action\": \"comment\", \"comment\": {{{case.comment}}}, \"sentinel_incident_id\": {{{external.system.id}}}}",
+  "create_incident_url": "${logicapp_upsert_url}",
+  "update_incident_url": "${logicapp_upsert_url}",
+  "create_comment_url": "${logicapp_upsert_url}",
+  "create_incident_response_key": "sentinel_incident_id",
+  "get_incident_url_template": "${logicapp_get_url}&sentinel_incident_id={{{external.system.id}}}",
+  "get_incident_response_external_title_key": "title",
+  "view_incident_url_template": "https://portal.azure.com/#asset/Microsoft_Azure_Security_Insights/Incident/subscriptions/${subscription_id}/resourceGroups/${resource_group}/providers/Microsoft.OperationalInsights/workspaces/${workspace_name}/providers/Microsoft.SecurityInsights/Incidents/{{{external.system.id}}}"
+}

@@ -1,0 +1,17 @@
+{
+  "_note": "Log Analytics data export writes JSON records to Event Hub; the input parses them as JSON (no per-record decoding needed beyond json). Target index: logs-azure.eventhub-default.",
+  "package": "azure_logs",
+  "input_type": "azure-eventhub",
+  "stream_dataset": "azure.eventhub",
+  "stream_namespace": "default",
+  "target_index": "logs-azure.eventhub-default",
+  "vars": {
+    "eventhub": "${eventhub}",
+    "consumer_group": "${consumer_group}",
+    "connection_string": "${connection_string}",
+    "storage_account": "${storage_account}",
+    "storage_account_key": "${storage_account_key}",
+    "data_stream.dataset": "azure.eventhub",
+    "parse_message": "json"
+  }
+}
