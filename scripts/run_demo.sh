@@ -49,15 +49,27 @@ case_id="$(jq -r '.id' <<<"$created")"
 version="$(jq -r '.version' <<<"$created")"
 log "Case created: $case_id"
 
+# Kibana only syncs a case to the external system on an explicit push.
+push_case() {
+  log "Pushing case to Sentinel connector ($1)"
+  kibana_curl POST "/api/cases/$case_id/connector/$CASE_CONNECTOR_ID/_push" '{}' \
+    | jq -c '{status, external_service: {external_id: .external_service.external_id, external_title: .external_service.external_title}}'
+}
+push_case "create"
+
 sleep 5
+# A push bumps the case version, so always re-read it before updating.
+version="$(kibana_curl GET "/api/cases/$case_id" | jq -r '.version')"
 log "Setting case status to in-progress"
 upd="$(kibana_curl PATCH /api/cases "$(jq -n --arg id "$case_id" --arg v "$version" \
   '{cases:[{id:$id, version:$v, status:"in-progress"}]}')")"
 case_version="$(jq -r '.[0].version' <<<"$upd")"
+push_case "status update"
 
 log "Adding comment"
 kibana_curl POST "/api/cases/$case_id/comments" "$(jq -n \
   '{type:"user", owner:"securitySolution", comment:"Analyst note: malware confirmed, host isolation under review."}')" >/dev/null
+push_case "comment"
 
 jq -n --arg id "$case_id" --arg ver "$case_version" --argjson ts "$RUN_TS" \
   '{case_id:$id, version:$ver, created_epoch:$ts}' > "$RESULTS_DIR/last_case.json"
@@ -70,7 +82,7 @@ cat <<EOF2
 Demo executed (run $RUN_TS). Verify:
   Case:      $KIBANA_URL/app/security/cases/$case_id
   Alerts:    $KIBANA_URL/app/security/alerts  (rule '$RULE_NAME', fires within ~5 min)
-  Sentinel:  Incidents blade for workspace $WORKSPACE_NAME (case incident immediately; NRT incident within ~10 min)
+  Sentinel:  Incidents blade for workspace $WORKSPACE_NAME (case incident immediately; alert incident 'Elastic alert: ...' within ~5 min)
   Syslog:    az monitor log-analytics query -w $WORKSPACE_ID --analytics-query "Syslog | take 5"
   Full run:  scripts/validate.sh
 EOF2
