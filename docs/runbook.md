@@ -32,8 +32,36 @@ Shortcut: `scripts/run_demo.sh` does all of this in about 30 seconds.
 
 1. Run `scripts/run_demo.sh` (it also creates failed SSH logins on the VM). Data takes 5 to 15 minutes to arrive, so start this early or use data already there.
 2. In Sentinel, open Logs and run `Syslog | take 10` to show the data in Sentinel.
-3. In Kibana, go to Discover and select the `logs-azure.eventhub-*` data view (create it if needed).
+3. In Kibana, open Discover and switch to **ES|QL** mode (the query-language toggle next to the search bar). No data view is needed. Run the ES|QL equivalent of the Sentinel query:
+
+   ```
+   FROM logs-azure.eventhub-*
+   | WHERE azure.eventhub.Type == "Syslog"
+   | SORT @timestamp DESC
+   | KEEP @timestamp, azure.eventhub.Computer, azure.eventhub.ProcessName, azure.eventhub.SeverityLevel, azure.eventhub.SyslogMessage
+   | LIMIT 10
+   ```
+
 4. The same Syslog records appear in Elasticsearch, delivered through Log Analytics export and Event Hubs.
+5. Optional: find the "malware" line that `run_demo.sh` wrote on the VM:
+
+   ```
+   FROM logs-azure.eventhub-*
+   | WHERE azure.eventhub.SyslogMessage LIKE "*malware*"
+   | SORT @timestamp DESC
+   | KEEP @timestamp, azure.eventhub.Computer, azure.eventhub.SyslogMessage
+   | LIMIT 5
+   ```
+
+6. Optional: count events by process.
+
+   ```
+   FROM logs-azure.eventhub-*
+   | WHERE azure.eventhub.Type == "Syslog"
+   | STATS events = COUNT(*) BY azure.eventhub.ProcessName
+   | SORT events DESC
+   | LIMIT 5
+   ```
 
 ## After the demo
 
