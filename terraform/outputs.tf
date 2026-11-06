@@ -79,7 +79,7 @@ output "kibana_alert_connector_id" {
 }
 
 output "detection_rule_name" {
-  value = elasticstack_kibana_security_detection_rule.malware.name
+  value = elasticstack_kibana_security_detection_rule.ssh_enumeration.name
 }
 
 output "logicapp_upsert_callback_url" {

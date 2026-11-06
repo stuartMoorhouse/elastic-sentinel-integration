@@ -20,11 +20,6 @@ variable "prefix" {
   default     = "elastic-sentinel"
 }
 
-variable "operator_ip_cidr" {
-  description = "Public IP (CIDR) allowed to SSH to the VM, e.g. 203.0.113.4/32"
-  type        = string
-}
-
 variable "vm_size" {
   description = "VM size for the Elastic Agent / syslog host (Standard_B2s has no capacity in eastus)"
   type        = string
@@ -95,4 +90,10 @@ variable "tags" {
   description = "Organisation-mandated tags applied to all taggable resources (division, org, keep-until, team, project)"
   type        = map(string)
   default     = {}
+}
+
+variable "kibana_size" {
+  description = "Kibana memory size. 1g runs out of heap on the Cases page and restarts (503 errors); 2g is stable."
+  type        = string
+  default     = "2g"
 }

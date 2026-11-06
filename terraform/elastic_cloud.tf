@@ -19,7 +19,7 @@ resource "ec_deployment" "main" {
   }
 
   kibana = {
-    size       = "1g"
+    size       = var.kibana_size
     zone_count = 1
   }
 

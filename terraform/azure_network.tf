@@ -25,17 +25,11 @@ resource "azurerm_network_security_group" "vm" {
   resource_group_name = azurerm_resource_group.main.name
   tags                = local.tags
 
-  security_rule {
-    name                       = "ssh-from-operator"
-    priority                   = 100
-    direction                  = "Inbound"
-    access                     = "Allow"
-    protocol                   = "Tcp"
-    source_port_range          = "*"
-    destination_port_range     = "22"
-    source_address_prefix      = var.operator_ip_cidr
-    destination_address_prefix = "*"
-  }
+  # Explicit empty list: omitting the block would leave existing rules in place.
+  security_rule = []
+
+  # No inbound rules: the VM is not reachable from the internet. Azure default rules still
+  # allow outbound traffic (Elastic Cloud, Azure Monitor) and deny inbound from the internet.
 }
 
 resource "azurerm_subnet_network_security_group_association" "vm" {
@@ -53,7 +47,7 @@ resource "azurerm_public_ip" "vm" {
 }
 
 resource "azurerm_network_interface" "vm" {
-  #checkov:skip=CKV_AZURE_119:Public IP needed for operator SSH; NSG restricts to operator IP
+  #checkov:skip=CKV_AZURE_119:Public IP gives the VM outbound access; NSG has no inbound rules
   name                = "${var.prefix}-vm-nic"
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name

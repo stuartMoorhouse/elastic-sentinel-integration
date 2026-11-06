@@ -23,10 +23,10 @@ Shortcut: `scripts/run_demo.sh` does all of this in about 30 seconds.
 
 ## Use case 2: Elastic alert creates a Sentinel incident
 
-1. Run `scripts/run_demo.sh`. It writes a log message containing "malware".
-2. In Kibana, go to Security, Alerts. Within about 2 minutes an alert from "Sentinel Test Rule" appears.
-3. In the Sentinel tab, refresh Incidents. An incident titled "Elastic alert: Sentinel Test Rule" appears within a few minutes.
-4. Open the incident to show the reason, host and link back to the Kibana alert.
+1. Run `scripts/run_demo.sh`. It makes failed SSH logins for 10 different invalid usernames on the VM, which looks like an attacker guessing usernames.
+2. In Kibana, go to Security, Alerts. Within a few minutes an alert from "SSH Login Attempts for Multiple Invalid Users From One Source" appears (high severity, MITRE T1110).
+3. In the Sentinel tab, refresh Incidents. An incident titled "Elastic alert: SSH Login Attempts for Multiple Invalid Users From One Source" appears within a few minutes.
+4. Open the incident to show the reason, host, source IP and link back to the Kibana alert.
 
 ## Use case 3: Sentinel logs are searchable in Elastic
 
@@ -43,11 +43,11 @@ Shortcut: `scripts/run_demo.sh` does all of this in about 30 seconds.
    ```
 
 4. The same Syslog records appear in Elasticsearch, delivered through Log Analytics export and Event Hubs.
-5. Optional: find the "malware" line that `run_demo.sh` wrote on the VM:
+5. Optional: find the failed SSH logins that triggered the Elastic rule:
 
    ```
    FROM logs-azure.eventhub-*
-   | WHERE azure.eventhub.SyslogMessage LIKE "*malware*"
+   | WHERE azure.eventhub.SyslogMessage LIKE "*Invalid user*"
    | SORT @timestamp DESC
    | KEEP @timestamp, azure.eventhub.Computer, azure.eventhub.SyslogMessage
    | LIMIT 5
@@ -73,6 +73,6 @@ Shortcut: `scripts/run_demo.sh` does all of this in about 30 seconds.
 | Symptom | Fix |
 |---|---|
 | Push in Kibana fails or no incident appears | The Sentinel API connection is not authorized. In the Azure portal, open it, choose Edit API connection, Authorize, Save. |
-| No alert in Kibana | Wait 2 minutes (the rule runs every minute). Check the rule is enabled under Security, Rules. |
-| Cannot SSH to the VM (`run_demo.sh` times out) | Your public IP changed. Update `operator_ip_cidr` in `terraform/terraform.tfvars` and run `terraform apply -target=azurerm_network_security_group.vm`. |
+| No alert in Kibana | Wait 2 minutes (the rule runs every minute). Check the rule is enabled under Security, Rules. The rule needs 10 or more failures from 5 or more users in 5 minutes. |
+| `run_demo.sh` says the VM is not running | Spot VMs can be evicted. Start it with `az vm start -g elastic-sentinel-rg -n elastic-sentinel-vm`. |
 | No Event Hub data in Elastic | Wait up to 15 minutes. Check the agent is online under Fleet. |

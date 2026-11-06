@@ -1,6 +1,6 @@
 # Demo scripts
 
-All scripts are bash (`set -euo pipefail`), read Terraform outputs through `terraform -chdir=terraform output -raw <name>`, and require `az`, `jq`, `curl`, `ssh` and `terraform`. Every script except get-urls.sh first asserts that `az account show` is on the subscription Terraform deployed to (and, if EXPECTED_AZ_USER is set, the expected user), and aborts otherwise.
+All scripts are bash (`set -euo pipefail`), read Terraform outputs through `terraform -chdir=terraform output -raw <name>`, and require `az`, `jq`, `curl` and `terraform`. Every script except get-urls.sh first asserts that `az account show` is on the subscription Terraform deployed to (and, if EXPECTED_AZ_USER is set, the expected user), and aborts otherwise.
 
 Terraform owns the Kibana connectors, detection rule and Fleet policy. The scripts only verify that they exist.
 
@@ -18,10 +18,10 @@ Acceptance check 10 (`terraform destroy` leaves nothing behind) is manual.
 
 - `lib.sh`: sourced helpers (output loading, `es_curl`, `kibana_curl`, logging, Azure preflight, `poll`). Credentials are passed to curl through a temporary 0600 config file, never on the command line.
 - `configure.sh`: waits for Kibana and Fleet, verifies both connectors, the detection rule and a Fleet agent policy exist, then writes non-secret endpoints and `infra_ready`/`config_ready` to `shared/env.json`. Passwords are never written.
-- `run_demo.sh`: over SSH writes a "malware detected demo" syslog line and 10 failed SSH logins on the VM (Sentinel Syslog data); indexes a "malware detected by demo" document into `logs-demo-sentinel-default` (the rule searches `logs-*`); creates a Kibana case using the case-management connector, moves it to in-progress and adds a comment. Saves `results/last_case.json` and `results/last_run.json`, sets `demo_executed`.
+- `run_demo.sh`: via `az vm run-command` (no SSH) makes 10 failed SSH logins for different invalid users on the VM (Sentinel Syslog data); creates a Kibana case using the case-management connector, moves it to in-progress and adds a comment. Saves `results/last_case.json` and `results/last_run.json`, sets `demo_executed`.
 - `validate.sh`: runs checks 1-9, printing PASS, FAIL or TIMEOUT, and writes `results/validation-<timestamp>.json`. Exits nonzero if any check is not PASS. Polling windows: alert 5 min, Log Analytics and incident 10 min, Event Hub to Elastic 15 min. Allow up to about 40 minutes in the worst case.
 - `reset-demo.sh [--yes]`: deletes cases tagged `elastic-sentinel-demo`, the demo index, alerts for the rule, and Sentinel incidents whose title starts with "Elastic Demo Case" or mentions Elastic or the rule name. Prompts unless `--yes`. Infrastructure is untouched.
-- `get-urls.sh`: prints Kibana, Elasticsearch and Fleet URLs, the SSH command and Azure portal links. The password is not printed; use `terraform -chdir=terraform output -raw elastic_password`.
+- `get-urls.sh`: prints Kibana, Elasticsearch and Fleet URLs, the `az vm run-command` hint and Azure portal links. The password is not printed; use `terraform -chdir=terraform output -raw elastic_password`.
 
 ## Assumptions about Kibana 9.x APIs
 

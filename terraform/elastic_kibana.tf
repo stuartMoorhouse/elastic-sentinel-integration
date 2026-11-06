@@ -17,7 +17,7 @@ locals {
     storage_account_key = azurerm_storage_account.checkpoints.primary_access_key
   }))
 
-  rule_cfg = jsondecode(file("${path.module}/../config/kibana/rule-malware.json"))
+  rule_cfg = jsondecode(file("${path.module}/../config/kibana/rule-ssh-enumeration.json"))
 
   json_headers = { "Content-Type" = "application/json" }
 }
@@ -138,19 +138,36 @@ data "elasticstack_fleet_enrollment_tokens" "vm" {
   depends_on = [elasticstack_fleet_agent_policy.vm]
 }
 
-# ---- Detection rule: message:malware, 1 minute, webhook action ----
-resource "elasticstack_kibana_security_detection_rule" "malware" {
-  name        = local.rule_cfg.name
-  description = local.rule_cfg.description
-  type        = local.rule_cfg.type
-  language    = local.rule_cfg.language
-  query       = local.rule_cfg.query
-  index       = local.rule_cfg.index
-  interval    = local.rule_cfg.interval
-  from        = local.rule_cfg.from
-  severity    = local.rule_cfg.severity
-  risk_score  = local.rule_cfg.risk_score
-  enabled     = local.rule_cfg.enabled
+# ---- Detection rule: SSH user enumeration (threshold), webhook action ----
+moved {
+  from = elasticstack_kibana_security_detection_rule.malware
+  to   = elasticstack_kibana_security_detection_rule.ssh_enumeration
+}
+
+resource "elasticstack_kibana_security_detection_rule" "ssh_enumeration" {
+  name            = local.rule_cfg.name
+  description     = local.rule_cfg.description
+  type            = local.rule_cfg.type
+  language        = local.rule_cfg.language
+  query           = local.rule_cfg.query
+  index           = local.rule_cfg.index
+  interval        = local.rule_cfg.interval
+  from            = local.rule_cfg.from
+  severity        = local.rule_cfg.severity
+  risk_score      = local.rule_cfg.risk_score
+  enabled         = local.rule_cfg.enabled
+  tags            = local.rule_cfg.tags
+  references      = local.rule_cfg.references
+  false_positives = local.rule_cfg.false_positives
+  note            = local.rule_cfg.note
+
+  threshold = {
+    field       = local.rule_cfg.threshold.field
+    value       = local.rule_cfg.threshold.value
+    cardinality = local.rule_cfg.threshold.cardinality
+  }
+
+  threat = local.rule_cfg.threat
 
   actions = [{
     action_type_id = ".webhook"

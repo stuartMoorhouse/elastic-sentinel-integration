@@ -1,0 +1,33 @@
+{
+  "name": "SSH Login Attempts for Multiple Invalid Users From One Source",
+  "description": "Detects a single source address attempting SSH logins for five or more different invalid usernames within five minutes, a pattern consistent with username enumeration or password guessing (brute force) against SSH.",
+  "type": "threshold",
+  "language": "kuery",
+  "query": "event.dataset:\"system.auth\" and event.category:\"authentication\" and event.outcome:\"failure\" and event.action:\"ssh_login\"",
+  "index": ["logs-system.auth-*"],
+  "interval": "1m",
+  "from": "now-5m",
+  "severity": "high",
+  "risk_score": 73,
+  "enabled": true,
+  "threshold": {
+    "field": ["source.ip", "host.name"],
+    "value": 10,
+    "cardinality": [{ "field": "user.name", "value": 5 }]
+  },
+  "tags": ["Domain: Endpoint", "OS: Linux", "Use Case: Threat Detection", "Tactic: Credential Access", "Data Source: System"],
+  "references": ["https://attack.mitre.org/techniques/T1110/"],
+  "false_positives": [
+    "Authorized vulnerability scanners or penetration tests.",
+    "Monitoring or automation using stale or misconfigured service accounts."
+  ],
+  "note": "## Triage\n- Identify the source IP and whether it is internal, a known scanner, or external.\n- Check whether any login from the same source succeeded after the failures (system.auth, event.outcome:success).\n- Review the usernames tried: invalid or generic names suggest enumeration.\n\n## Response\n- Block the source at the network security group or firewall.\n- If a login succeeded, treat the account as compromised: reset credentials and review the host.",
+  "threat": [{
+    "framework": "MITRE ATT&CK",
+    "tactic": { "id": "TA0006", "name": "Credential Access", "reference": "https://attack.mitre.org/tactics/TA0006/" },
+    "technique": [{
+      "id": "T1110", "name": "Brute Force", "reference": "https://attack.mitre.org/techniques/T1110/",
+      "subtechnique": [{ "id": "T1110.001", "name": "Password Guessing", "reference": "https://attack.mitre.org/techniques/T1110/001/" }]
+    }]
+  }]
+}

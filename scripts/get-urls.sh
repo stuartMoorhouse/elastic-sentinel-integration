@@ -14,7 +14,7 @@ Fleet:          $FLEET_URL
 Username:       $ELASTIC_USER
 Password:       terraform -chdir=terraform output -raw elastic_password
 
-SSH:            ssh -i $SSH_KEY azureuser@$VM_IP
+VM access:      no inbound SSH; run commands with: az vm run-command invoke -g $RESOURCE_GROUP -n <vm> --command-id RunShellScript --scripts "<cmd>"
 
 Azure portal:
   Resource group:  https://portal.azure.com/#@/resource/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/overview

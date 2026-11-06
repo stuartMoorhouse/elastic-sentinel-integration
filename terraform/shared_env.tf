@@ -24,7 +24,7 @@ resource "local_file" "shared_env" {
     azurerm_logic_app_action_custom.upsert_route,
     azurerm_logic_app_action_custom.get_response,
     azurerm_logic_app_action_custom.alert_response,
-    elasticstack_kibana_security_detection_rule.malware,
+    elasticstack_kibana_security_detection_rule.ssh_enumeration,
     elasticstack_fleet_integration_policy.azure_eventhub,
     elasticstack_fleet_integration_policy.system,
   ]
