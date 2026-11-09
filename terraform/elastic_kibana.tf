@@ -19,6 +19,8 @@ locals {
 
   rule_cfg = jsondecode(file("${path.module}/../config/kibana/rule-ssh-enumeration.json"))
 
+  sentinel_rule_cfg = jsondecode(file("${path.module}/../config/kibana/rule-sentinel-incident.json"))
+
   json_headers = { "Content-Type" = "application/json" }
 }
 
@@ -85,7 +87,10 @@ resource "elasticstack_fleet_agent_policy" "vm" {
   monitor_logs    = true
   monitor_metrics = false
   sys_monitoring  = false
-  skip_destroy    = false
+  # Enrolled agents (even offline ones) block policy deletion with HTTP 400
+  # ("Cannot delete an agent policy that is assigned to any active or inactive
+  # agents"). Destroying ec_deployment removes the policy anyway.
+  skip_destroy = true
 }
 
 resource "elasticstack_fleet_integration_policy" "system" {
@@ -182,4 +187,25 @@ resource "elasticstack_kibana_security_detection_rule" "ssh_enumeration" {
       throttle    = "no_actions"
     }
   }]
+}
+
+# ---- Sentinel -> Elastic alert: a Sentinel-raised incident (exported via Event Hub) becomes an
+# Elastic alert. No webhook action: Elastic-originated incidents are excluded, and the
+# incident is also mirrored to a case by the Sentinel automation rule playbook. ----
+resource "elasticstack_kibana_security_detection_rule" "sentinel_incident" {
+  name            = local.sentinel_rule_cfg.name
+  description     = local.sentinel_rule_cfg.description
+  type            = local.sentinel_rule_cfg.type
+  language        = local.sentinel_rule_cfg.language
+  query           = local.sentinel_rule_cfg.query
+  index           = local.sentinel_rule_cfg.index
+  interval        = local.sentinel_rule_cfg.interval
+  from            = local.sentinel_rule_cfg.from
+  severity        = local.sentinel_rule_cfg.severity
+  risk_score      = local.sentinel_rule_cfg.risk_score
+  enabled         = local.sentinel_rule_cfg.enabled
+  tags            = local.sentinel_rule_cfg.tags
+  references      = local.sentinel_rule_cfg.references
+  false_positives = local.sentinel_rule_cfg.false_positives
+  note            = local.sentinel_rule_cfg.note
 }

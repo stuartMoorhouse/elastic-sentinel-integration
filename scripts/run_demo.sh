@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Generate demo activity: failed SSH logins for several invalid users on the VM (they
-# feed Sentinel via syslog and trigger the Elastic detection rule via Elastic Agent),
-# and a Kibana case that syncs to Sentinel.
+# Generate demo activity: failed SSH logins for several invalid users on the VM. They
+# feed Sentinel via syslog and trigger the Elastic detection rule via Elastic Agent.
+# Cases are created by hand in Kibana (see docs/runbook.md).
 set -euo pipefail
 # shellcheck source=lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -32,53 +32,15 @@ out="$(az vm run-command invoke -g "$RESOURCE_GROUP" -n "$VM_NAME" --command-id 
 grep -q "syslog events generated" <<<"$out" || die "run-command did not complete as expected: $(jq -r '.value[0].message' <<<"$out" | head -c 300)"
 echo "syslog events generated"
 
-# --- 2. Kibana case ----------------------------------------------------------
-log "Creating Kibana case"
-connector="$(kibana_curl GET "/api/actions/connector/$CASE_CONNECTOR_ID")"
-case_body="$(jq -n --arg t "Elastic Demo Case $RUN_TS" --arg tag "$DEMO_TAG" --argjson c "$connector" '{
-  title:$t, description:"Repeated failed SSH logins for multiple invalid users, detected by the Elastic-Sentinel integration demo.",
-  tags:[$tag], severity:"high", owner:"securitySolution",
-  settings:{syncAlerts:false}, assignees:[],
-  connector:{id:$c.id, name:$c.name, type:$c.connector_type_id, fields:null}}')"
-created="$(kibana_curl POST /api/cases "$case_body")"
-case_id="$(jq -r '.id' <<<"$created")"
-version="$(jq -r '.version' <<<"$created")"
-log "Case created: $case_id"
-
-# Kibana only syncs a case to the external system on an explicit push.
-push_case() {
-  log "Pushing case to Sentinel connector ($1)"
-  kibana_curl POST "/api/cases/$case_id/connector/$CASE_CONNECTOR_ID/_push" '{}' \
-    | jq -c '{status, external_service: {external_id: .external_service.external_id, external_title: .external_service.external_title}}'
-}
-push_case "create"
-
-sleep 5
-# A push bumps the case version, so always re-read it before updating.
-version="$(kibana_curl GET "/api/cases/$case_id" | jq -r '.version')"
-log "Setting case status to in-progress"
-upd="$(kibana_curl PATCH /api/cases "$(jq -n --arg id "$case_id" --arg v "$version" \
-  '{cases:[{id:$id, version:$v, status:"in-progress"}]}')")"
-case_version="$(jq -r '.[0].version' <<<"$upd")"
-push_case "status update"
-
-log "Adding comment"
-kibana_curl POST "/api/cases/$case_id/comments" "$(jq -n \
-  '{type:"user", owner:"securitySolution", comment:"Analyst note: repeated SSH logins for invalid users from one source, blocking the source address."}')" >/dev/null
-push_case "comment"
-
-jq -n --arg id "$case_id" --arg ver "$case_version" --argjson ts "$RUN_TS" \
-  '{case_id:$id, version:$ver, created_epoch:$ts}' > "$RESULTS_DIR/last_case.json"
-
-# --- 3. Flag ----------------------------------------------------------------
+# --- 2. Flag ----------------------------------------------------------------
 env_set '.demo_executed = true'
 
 cat <<EOF2
 
 Demo executed (run $RUN_TS). Verify:
-  Case:      $KIBANA_URL/app/security/cases/$case_id
+  Cases:     $KIBANA_URL/app/security/cases  (create and push one yourself)
   Alerts:    $KIBANA_URL/app/security/alerts  (rule '$RULE_NAME', fires within ~5 min)
-  Sentinel:  Incidents blade for workspace $WORKSPACE_NAME (case incident immediately; alert incident 'Elastic alert: ...' within ~5 min)
+  Sentinel:  Incidents blade for workspace $WORKSPACE_NAME (alert incident 'Elastic alert: ...' within ~5 min)
   Syslog:    az monitor log-analytics query -w $WORKSPACE_ID --analytics-query "Syslog | take 5"
   Full run:  scripts/validate.sh
 EOF2

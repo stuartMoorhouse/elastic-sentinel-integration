@@ -17,6 +17,10 @@ terraform {
       source  = "azure/azapi"
       version = "~> 2.0"
     }
+    azuread = {
+      source  = "hashicorp/azuread"
+      version = "~> 3.0"
+    }
     random = {
       source  = "hashicorp/random"
       version = "~> 3.6"
@@ -42,6 +46,12 @@ provider "azurerm" {
 
 # Reads EC_API_KEY from the environment.
 provider "ec" {}
+
+# Used only to look up the "Azure Security Insights" service principal that Sentinel
+# automation rules run playbooks as.
+provider "azuread" {
+  tenant_id = var.tenant_id
+}
 
 provider "azapi" {
   subscription_id = var.subscription_id

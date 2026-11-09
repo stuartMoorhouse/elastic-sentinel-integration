@@ -61,6 +61,8 @@ load_outputs() {
   CASE_CONNECTOR_ID="$(tf_out kibana_case_connector_id)"
   ALERT_CONNECTOR_ID="$(tf_out kibana_alert_connector_id)"
   RULE_NAME="$(tf_out detection_rule_name)"
+  SENTINEL_RULE_NAME="$(tf_out sentinel_incident_rule_name)"
+  LA_SENTINEL_TO_ELASTIC="$(tf_out sentinel_to_elastic_logicapp_name)"
   # Relative key path is relative to the terraform dir
   [[ "$SSH_KEY" = /* ]] || SSH_KEY="$TF_DIR/$SSH_KEY"
 
@@ -128,6 +130,21 @@ az_rest() { # METHOD URL [BODY]
 }
 sentinel_url() { # path-after-workspace  e.g. /providers/Microsoft.SecurityInsights/incidents
   printf 'https://management.azure.com%s%s?api-version=%s' "$WORKSPACE_ARM_ID" "$1" "${2:-$SENTINEL_API}"
+}
+# incident_put GUID TITLE SEVERITY STATUS  -> create/replace a Sentinel incident (ARM)
+incident_put() {
+  local body
+  body="$(jq -n --arg t "$2" --arg sev "$3" --arg st "$4" \
+    '{properties:({title:$t, severity:$sev, status:$st} + (if $st == "Closed" then {classification:"Undetermined"} else {} end))}')"
+  az_rest PUT "$(sentinel_url "/providers/Microsoft.SecurityInsights/incidents/$1")" "$body"
+}
+# incident_set_status GUID STATUS -> read-modify-write the status of an existing incident
+incident_set_status() {
+  local cur body
+  cur="$(az_rest GET "$(sentinel_url "/providers/Microsoft.SecurityInsights/incidents/$1")")" || return 1
+  body="$(jq -c --arg st "$2" '{properties:{title:.properties.title, severity:.properties.severity, status:$st}
+      + (if $st == "Closed" then {classification:"Undetermined"} else {} end)}' <<<"$cur")"
+  az_rest PUT "$(sentinel_url "/providers/Microsoft.SecurityInsights/incidents/$1")" "$body"
 }
 la_query() { # KQL -> JSON array on stdout
   az monitor log-analytics query -w "$WORKSPACE_ID" --analytics-query "$1" -o json

@@ -12,6 +12,7 @@ Static configuration consumed by Terraform via file() / templatefile(). No secre
 | kibana/webhook-case-connector.json | Fields of the .cases-webhook connector: create/update/comment bodies, response keys, get/view URL templates, plus create/update/comment URLs | elasticstack_kibana_action_connector (connector_type_id `.cases-webhook`), POST /api/actions/connector |
 | kibana/rule-action-body.json | Body of the Webhook rule action; keys match elastic-alert.schema.json | `actions[].params.body` of the detection rule (elasticstack_kibana_security_detection_rule) |
 | kibana/rule-ssh-enumeration.json | Detection rule "SSH Login Attempts for Multiple Invalid Users From One Source" (threshold, 1m, high, 73, MITRE T1110) | POST /api/detection_engine/rules |
+| kibana/rule-sentinel-incident.json | Detection rule "Microsoft Sentinel Incident Raised" (query on exported SecurityIncident rows, excludes Elastic-originated incidents) | elasticstack_kibana_security_detection_rule |
 | fleet/azure-eventhub-input.json | Azure Event Hub input vars for the Fleet package policy (azure_logs) | elasticstack_fleet_integration_policy |
 
 ## Placeholders

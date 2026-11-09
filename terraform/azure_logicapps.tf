@@ -119,29 +119,60 @@ resource "azurerm_logic_app_action_custom" "upsert_route" {
       create = {
         case = "create"
         actions = {
-          Create_Incident = {
-            type = "ApiConnection"
+          # Cases created from a Sentinel incident (see azure_sentinel_to_elastic.tf) carry the tag
+          # "sentinel-incident-<guid>". The incident already exists, so the first push returns that
+          # guid instead of creating a duplicate; later pushes then update the same incident.
+          Native_Tag = {
+            type = "Query"
             inputs = {
-              host   = local.sentinel_conn_host
-              method = "put"
-              path   = "/Incidents/subscriptions/@{encodeURIComponent('${var.subscription_id}')}/resourceGroups/@{encodeURIComponent('${azurerm_resource_group.main.name}')}/workspaces/@{encodeURIComponent('${azurerm_log_analytics_workspace.main.name}')}"
-              body = {
-                title       = "@outputs('Props')?['title']"
-                description = "@outputs('Props')?['description']"
-                severity    = "@outputs('Props')?['severity']"
-                status      = "@outputs('Props')?['status']"
-              }
+              from  = "@coalesce(triggerBody()?['tags'],createArray())"
+              where = "@startsWith(item(),'sentinel-incident-')"
             }
             runAfter = {}
           }
-          Respond_Created = {
-            type = "Response"
-            inputs = {
-              statusCode = 200
-              headers    = { "Content-Type" = "application/json" }
-              body       = { sentinel_incident_id = "@{body('Create_Incident')?['name']}" }
+          Existing_Or_New = {
+            type       = "If"
+            expression = "@greater(length(body('Native_Tag')),0)"
+            runAfter   = { Native_Tag = ["Succeeded"] }
+            actions = {
+              Respond_Existing = {
+                type = "Response"
+                inputs = {
+                  statusCode = 200
+                  headers    = { "Content-Type" = "application/json" }
+                  body       = { sentinel_incident_id = "@{substring(first(body('Native_Tag')),18)}" }
+                }
+                runAfter = {}
+              }
             }
-            runAfter = { Create_Incident = ["Succeeded"] }
+            else = {
+              actions = {
+                Create_Incident = {
+                  type = "ApiConnection"
+                  inputs = {
+                    host   = local.sentinel_conn_host
+                    method = "put"
+                    path   = "/Incidents/subscriptions/@{encodeURIComponent('${var.subscription_id}')}/resourceGroups/@{encodeURIComponent('${azurerm_resource_group.main.name}')}/workspaces/@{encodeURIComponent('${azurerm_log_analytics_workspace.main.name}')}"
+                    body = {
+                      title       = "@outputs('Props')?['title']"
+                      description = "@outputs('Props')?['description']"
+                      severity    = "@outputs('Props')?['severity']"
+                      status      = "@outputs('Props')?['status']"
+                    }
+                  }
+                  runAfter = {}
+                }
+                Respond_Created = {
+                  type = "Response"
+                  inputs = {
+                    statusCode = 200
+                    headers    = { "Content-Type" = "application/json" }
+                    body       = { sentinel_incident_id = "@{body('Create_Incident')?['name']}" }
+                  }
+                  runAfter = { Create_Incident = ["Succeeded"] }
+                }
+              }
+            }
           }
         }
       }
@@ -280,7 +311,7 @@ resource "azurerm_logic_app_action_custom" "alert_incident" {
       path   = "/Incidents/subscriptions/@{encodeURIComponent('${var.subscription_id}')}/resourceGroups/@{encodeURIComponent('${azurerm_resource_group.main.name}')}/workspaces/@{encodeURIComponent('${azurerm_log_analytics_workspace.main.name}')}"
       body = {
         title       = "@concat('Elastic alert: ',coalesce(triggerBody()?['rule_name'],'unknown rule'))"
-        description = "@concat('Reason: ',coalesce(triggerBody()?['reason'],''),' | Host: ',coalesce(triggerBody()?['host_name'],''),' | Message: ',coalesce(triggerBody()?['message'],''),' | Risk score: ',string(coalesce(triggerBody()?['risk_score'],'')),' | Alert: ',coalesce(triggerBody()?['kibana_alert_url'],''))"
+        description = "@concat('Reason: ',coalesce(triggerBody()?['reason'],''),' | Host: ',coalesce(triggerBody()?['host_name'],''),' | Message: ',coalesce(triggerBody()?['message'],''),' | Risk score: ',string(coalesce(triggerBody()?['risk_score'],'')),' | Alert: ',coalesce(triggerBody()?['kibana_alert_url'],''),if(empty(coalesce(triggerBody()?['alert_uuid'],'')),'',concat(' [alert-uuid:',triggerBody()?['alert_uuid'],']')))"
         severity    = local.severity_expr
         status      = "New"
       }

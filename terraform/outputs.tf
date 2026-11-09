@@ -62,6 +62,14 @@ output "sentinel_get_incident_logicapp_name" {
   value = azurerm_logic_app_workflow.incident_get.name
 }
 
+output "sentinel_to_elastic_logicapp_name" {
+  value = azapi_resource.sentinel_to_elastic.name
+}
+
+output "sentinel_incident_rule_name" {
+  value = elasticstack_kibana_security_detection_rule.sentinel_incident.name
+}
+
 output "event_hub_namespace" {
   value = azurerm_eventhub_namespace.main.name
 }

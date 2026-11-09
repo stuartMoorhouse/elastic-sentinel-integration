@@ -25,6 +25,9 @@ resource "local_file" "shared_env" {
     azurerm_logic_app_action_custom.get_response,
     azurerm_logic_app_action_custom.alert_response,
     elasticstack_kibana_security_detection_rule.ssh_enumeration,
+    elasticstack_kibana_security_detection_rule.sentinel_incident,
+    azurerm_sentinel_automation_rule.incident_created,
+    azurerm_sentinel_automation_rule.incident_updated,
     elasticstack_fleet_integration_policy.azure_eventhub,
     elasticstack_fleet_integration_policy.system,
   ]

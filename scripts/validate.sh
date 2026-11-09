@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Runs acceptance checks 1-9 and writes results/validation-<timestamp>.json.
-# Check 10 (terraform destroy leaves nothing behind) is manual.
+# Runs acceptance checks 1-13 and writes results/validation-<timestamp>.json.
+# Check 14 (terraform destroy leaves nothing behind) is manual.
+# Checks 10-13 are the Sentinel -> Elastic and round-trip sync checks.
 set -euo pipefail
 # shellcheck source=lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -18,7 +19,7 @@ record() { # num name status detail
   printf '%-8s %s. %s - %s\n' "[$3]" "$1" "$2" "$4"
   RESULTS="$(jq --argjson n "$1" --arg name "$2" --arg s "$3" --arg d "$4" \
     '. + [{check:$n, name:$name, status:$s, detail:$d}]' <<<"$RESULTS")"
-  [[ "$3" == "PASS" ]] || FAILED=1
+  [[ "$3" == "PASS" || "$3" == "SKIP" ]] || FAILED=1
 }
 
 RUN_EPOCH="$(jq -r '.started_epoch // empty' "$RESULTS_DIR/last_run.json" 2>/dev/null || true)"
@@ -120,22 +121,24 @@ check6() {
 
 # 7 -- case synced to Sentinel incident
 check7() {
-  local f="$RESULTS_DIR/last_case.json" cid c ext inc comments status ncom
-  [[ -f "$f" ]] || { record 7 "Case synced to Sentinel incident" FAIL "results/last_case.json missing (run run_demo.sh)"; return; }
-  cid="$(jq -r '.case_id' "$f")"
-  c="$(kibana_curl GET "/api/cases/$cid" 2>&1)" || { record 7 "Case synced to Sentinel incident" FAIL "case $cid not found"; return; }
-  ext="$(jq -r '.external_service.external_id // empty' <<<"$c")"
-  [[ -n "$ext" ]] || { record 7 "Case synced to Sentinel incident" FAIL "case $cid has no external_service (not pushed to Sentinel; push may need manual 'Push' or connector-on-create)"; return; }
+  local n="Case synced to Sentinel incident" found cid c ext title cstatus inc istatus ititle expect
+  # The case is created by hand in Kibana. Use the most recently updated case that was pushed.
+  found="$(kibana_curl GET "/api/cases/_find?owner=securitySolution&sortField=updatedAt&sortOrder=desc&perPage=50" 2>/dev/null \
+    | jq -c '[.cases[] | select(.external_service != null)][0] // empty')"
+  [[ -n "$found" ]] || { record 7 "$n" SKIP "no case has been pushed to Sentinel yet (create a case in Kibana and push it)"; return; }
+  cid="$(jq -r '.id' <<<"$found")"
+  ext="$(jq -r '.external_service.external_id' <<<"$found")"
+  title="$(jq -r '.title' <<<"$found")"
+  cstatus="$(jq -r '.status' <<<"$found")"
   inc="$(az_rest GET "$(sentinel_url "/providers/Microsoft.SecurityInsights/incidents/$ext")" 2>&1)" \
-    || { record 7 "Case synced to Sentinel incident" FAIL "incident $ext not found: $(head -c 200 <<<"$inc")"; return; }
-  status="$(jq -r '.properties.status' <<<"$inc")"
-  comments="$(az_rest GET "$(sentinel_url "/providers/Microsoft.SecurityInsights/incidents/$ext/comments")" 2>/dev/null || echo '{"value":[]}')"
-  ncom="$(jq '.value | length' <<<"$comments")"
-  # Case in-progress -> Sentinel Active (Logic App maps statuses); at least one comment expected.
-  if [[ "$status" == "Active" && "$ncom" -ge 1 ]]; then
-    record 7 "Case synced to Sentinel incident" PASS "incident=$ext status=$status comments=$ncom"
+    || { record 7 "$n" FAIL "case '$title' points at incident $ext, which was not found: $(head -c 200 <<<"$inc")"; return; }
+  istatus="$(jq -r '.properties.status' <<<"$inc")"
+  ititle="$(jq -r '.properties.title' <<<"$inc")"
+  case "$cstatus" in open) expect=New ;; in-progress) expect=Active ;; closed) expect=Closed ;; *) expect="?" ;; esac
+  if [[ "$istatus" == "$expect" ]]; then
+    record 7 "$n" PASS "case '$title' ($cstatus) -> incident $ext '$ititle' status=$istatus"
   else
-    record 7 "Case synced to Sentinel incident" FAIL "incident=$ext status=$status (expected Active) comments=$ncom (expected >=1)"
+    record 7 "$n" FAIL "case '$title' is $cstatus (expected incident $expect) but incident $ext is $istatus; push the case again"
   fi
 }
 
@@ -158,13 +161,86 @@ check9() {
     || record 9 "Event Hub data searchable in Elastic" TIMEOUT "no docs in logs-azure.eventhub-* within 15 min"
 }
 
+# ---- Bidirectional sync checks (10-13) ----
+NATIVE_GUID=""; NATIVE_CASE=""; NATIVE_TITLE=""
+_native_case() {
+  local r
+  r="$(kibana_curl GET "/api/cases/_find?owner=securitySolution&tags=sentinel-incident-$NATIVE_GUID" 2>/dev/null)" || return 1
+  NATIVE_CASE="$(jq -c '.cases[0] // empty' <<<"$r")"
+  [[ -n "$NATIVE_CASE" ]]
+}
+_native_case_status() { # expected status
+  _native_case && [[ "$(jq -r '.status' <<<"$NATIVE_CASE")" == "$1" ]]
+}
+
+# 10 -- Sentinel-native incident becomes a Kibana case (automation rule -> playbook -> Cases API)
+check10() {
+  local n="Sentinel incident creates an Elastic case"
+  NATIVE_GUID="$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen | tr 'A-Z' 'a-z')"
+  NATIVE_TITLE="Sentinel-native demo incident $STAMP"
+  incident_put "$NATIVE_GUID" "$NATIVE_TITLE" Medium New >/dev/null 2>&1 \
+    || { record 10 "$n" FAIL "could not create the Sentinel incident"; return; }
+  if poll 300 15 _native_case; then
+    record 10 "$n" PASS "incident $NATIVE_GUID -> case $(jq -r '.id' <<<"$NATIVE_CASE") '$(jq -r '.title' <<<"$NATIVE_CASE")'"
+  else
+    record 10 "$n" TIMEOUT "no case tagged sentinel-incident-$NATIVE_GUID within 5 min (automation rules enabled? playbook run history?)"
+  fi
+}
+
+# 11 -- status change in Sentinel reaches the case
+check11() {
+  local n="Sentinel status change updates the Elastic case"
+  [[ -n "$NATIVE_GUID" && -n "$NATIVE_CASE" ]] || { record 11 "$n" SKIP "check 10 did not produce a case"; return; }
+  incident_set_status "$NATIVE_GUID" Active >/dev/null 2>&1 || { record 11 "$n" FAIL "could not set the incident to Active"; return; }
+  poll 300 15 _native_case_status in-progress \
+    && record 11 "$n" PASS "incident Active -> case in-progress" \
+    || record 11 "$n" TIMEOUT "case did not become in-progress within 5 min"
+}
+
+# 12 -- closing the case in Elastic closes the Sentinel incident (case connector push)
+_incident_status() { # expected
+  local st
+  st="$(az_rest GET "$(sentinel_url "/providers/Microsoft.SecurityInsights/incidents/$NATIVE_GUID")" 2>/dev/null | jq -r '.properties.status')" || return 1
+  [[ "$st" == "$1" ]]
+}
+check12() {
+  local n="Closing the Elastic case closes the Sentinel incident" cid ver
+  [[ -n "$NATIVE_CASE" ]] || { record 12 "$n" SKIP "check 10 did not produce a case"; return; }
+  _native_case || { record 12 "$n" FAIL "case not found"; return; }
+  cid="$(jq -r '.id' <<<"$NATIVE_CASE")"; ver="$(jq -r '.version' <<<"$NATIVE_CASE")"
+  kibana_curl PATCH /api/cases "$(jq -n --arg id "$cid" --arg v "$ver" '{cases:[{id:$id,version:$v,status:"closed"}]}')" >/dev/null 2>&1 \
+    || { record 12 "$n" FAIL "could not close the case"; return; }
+  kibana_curl POST "/api/cases/$cid/connector/$CASE_CONNECTOR_ID/_push" '{}' >/dev/null 2>&1 \
+    || { record 12 "$n" FAIL "push to Sentinel failed"; return; }
+  poll 180 10 _incident_status Closed \
+    && record 12 "$n" PASS "case closed + pushed -> incident $NATIVE_GUID Closed" \
+    || record 12 "$n" FAIL "incident $NATIVE_GUID is not Closed after the push"
+}
+
+# 13 -- closing the Sentinel incident that came from an Elastic alert closes that alert
+_alert_closed() {
+  local q r
+  q="$(jq -n --arg n "$RULE_NAME" '{size:0, track_total_hits:true, query:{bool:{filter:[{term:{"kibana.alert.rule.name":$n}},{term:{"kibana.alert.workflow_status":"closed"}}]}}}')"
+  r="$(es_curl POST '/.alerts-security.alerts-default/_search?ignore_unavailable=true' "$q" 2>/dev/null)" || return 1
+  (( $(jq -r '.hits.total.value // 0' <<<"$r") > 0 ))
+}
+check13() {
+  local n="Closing the Sentinel incident closes the Elastic alert" g
+  g="$(az_rest GET "$(sentinel_url /providers/Microsoft.SecurityInsights/incidents)&\$filter=contains(properties/title,'Elastic%20alert')&\$top=1" 2>/dev/null | jq -r '.value[0].name // empty')"
+  [[ -n "$g" ]] || { record 13 "$n" SKIP "no 'Elastic alert' incident in Sentinel (run check 6 first)"; return; }
+  incident_set_status "$g" Closed >/dev/null 2>&1 || { record 13 "$n" FAIL "could not close incident $g"; return; }
+  poll 300 15 _alert_closed \
+    && record 13 "$n" PASS "incident $g Closed -> alert workflow_status closed" \
+    || record 13 "$n" TIMEOUT "alert not closed within 5 min"
+}
+
 # Quick checks first, then the slow polling ones.
-for fn in check1 check2 check3 check4 check5 check6 check7 check8 check9; do
+for fn in check1 check2 check3 check4 check5 check6 check7 check8 check9 check10 check11 check12 check13; do
   "$fn" || record "${fn#check}" "$fn crashed" FAIL "unexpected error"
 done
 
 jq -n --arg ts "$STAMP" --arg run "$RUN_ISO" --argjson r "$RESULTS" \
-  '{timestamp:$ts, demo_run_start:$run, results:$r, all_passed: ([$r[] | select(.status != "PASS")] | length == 0)}' > "$OUT"
+  '{timestamp:$ts, demo_run_start:$run, results:$r, all_passed: ([$r[] | select(.status != "PASS" and .status != "SKIP")] | length == 0)}' > "$OUT"
 log "Results written to $OUT"
-echo "Check 10 is manual: run 'terraform destroy' and confirm the resource group $RESOURCE_GROUP no longer exists."
+echo "Check 14 is manual: run 'terraform destroy' and confirm the resource group $RESOURCE_GROUP no longer exists."
 exit "$FAILED"

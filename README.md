@@ -1,10 +1,12 @@
 # Elastic Security and Microsoft Sentinel Integration Demo
 
-Terraform that deploys a small Microsoft Sentinel environment on Azure and an Elastic Cloud deployment, wired together to demonstrate three integration scenarios from the Elastic blog "Unifying security monitoring with Elastic Security and Microsoft Sentinel":
+Terraform that deploys a small Microsoft Sentinel environment on Azure and an Elastic Cloud deployment, wired together to demonstrate bidirectional case and alert synchronisation plus Sentinel log ingestion, in five scenarios from the Elastic blog "Unifying security monitoring with Elastic Security and Microsoft Sentinel":
 
 1. Elastic Security cases create and update Sentinel incidents.
 2. Elastic Security alerts create Sentinel incidents.
 3. Sentinel logs are exported into Elasticsearch.
+4. Sentinel incidents create and update Elastic cases, and status changes sync both ways.
+5. Closing a Sentinel incident that came from an Elastic alert closes or acknowledges the alert.
 
 To run the demo, see [docs/runbook.md](docs/runbook.md).
 
@@ -20,6 +22,7 @@ To run the demo, see [docs/runbook.md](docs/runbook.md).
   |  Logic App: upsert incident  --+             Microsoft Sentinel|
   |  Logic App: get incident     --+--> Sentinel API connection    |
   |  Logic App: alert -> incident -+                  |            |
+  |  Automation rules --> Logic App: incident -> Kibana case/alert     |
   |                                                   v            |
   |                          Data export rule --> Event Hub        |
   +---------------------------------------------------|------------+
@@ -30,6 +33,8 @@ To run the demo, see [docs/runbook.md](docs/runbook.md).
       - Alert webhook connector --> alert Logic App       (scenario 2)
       - Detection rule "SSH Login Attempts for Multiple Invalid Users From One Source"
       - Azure Event Hub integration <------------------- (scenario 3)
+      - Cases and alerts API <---- incident playbook ---- (scenarios 4, 5)
+      - Detection rule "Microsoft Sentinel Incident Raised" (scenario 4)
 ```
 
 ## Resources created
@@ -51,6 +56,9 @@ To run the demo, see [docs/runbook.md](docs/runbook.md).
 | Logic App: upsert incident | Creates, updates and comments on Sentinel incidents (called by the Kibana case connector). |
 | Logic App: get incident | Returns incident details to Kibana (called by the Kibana case connector). |
 | Logic App: alert to incident | Creates a Sentinel incident from an Elastic alert (called by the Kibana alert connector). |
+| Logic App: incident to Elastic | Sentinel playbook (incident trigger). Creates or updates a Kibana case for Sentinel incidents, copies status back to the originating case, and sets the alert status for incidents that came from an Elastic alert. |
+| Sentinel automation rules (2) | Run the playbook when an incident is created and when it is updated. |
+| Role assignment | Gives the "Azure Security Insights" service principal the Microsoft Sentinel Automation Contributor role on the resource group so automation rules can run the playbook. |
 
 ### Elastic Cloud and Kibana
 
@@ -60,6 +68,7 @@ To run the demo, see [docs/runbook.md](docs/runbook.md).
 | Case management webhook connector | Syncs Kibana cases to Sentinel incidents through the upsert and get Logic Apps. |
 | Alert webhook connector | Sends alert details to the alert Logic App. |
 | Detection rule "SSH Login Attempts for Multiple Invalid Users From One Source" | Threshold rule (10 or more failed SSH logins, 5 or more distinct users, same source, 5 minutes). High severity, mapped to MITRE T1110. Calls the alert connector. |
+| Detection rule "Microsoft Sentinel Incident Raised" | Query rule on the exported SecurityIncident rows. Excludes incidents Elastic created, so there is no alert loop. |
 | Fleet agent policy with System and Azure Event Hub integrations | Enrolls the VM's Elastic Agent and ingests the Event Hub data. |
 
 ### Local files written by Terraform
@@ -74,13 +83,14 @@ All taggable resources carry the tags from the `tags` variable.
 ## Not included
 
 - Azure Activity logs. The subscription is already at the Azure limit of five subscription-level diagnostic settings.
-- Role assignments and managed identities. The deploying account has Contributor access only, so the Logic Apps use a Sentinel API connection authorized by a person instead.
+- Managed identities. The Logic Apps use a Sentinel API connection authorized by a person. The deploying account needs Owner (or User Access Administrator) on the subscription for the one role assignment above.
+- A scoped Kibana credential for the incident playbook. It calls Kibana as the `elastic` user (demo only).
 - A custom Log Analytics table and NRT rule for Elastic alerts. Alerts create Sentinel incidents directly.
 
 ## Prerequisites
 
 - Terraform 1.5 or later, the Azure CLI (`az`), `jq` and `curl`.
-- An Azure subscription where you have Contributor access, and `az login` completed for it.
+- An Azure subscription where you have Owner access (a role assignment is created), and `az login` completed for it. Default: the personal subscription `8e5b82f7-fb81-4620-8b75-fc820cf9f492`.
 - An Elastic Cloud API key in the `EC_API_KEY` environment variable.
 - The `az` `log-analytics` extension, for the validation script: `az extension add --name log-analytics`.
 
@@ -89,18 +99,18 @@ All taggable resources carry the tags from the `tags` variable.
 1. Copy `terraform.tfvars.example` to `terraform/terraform.tfvars` and fill in the subscription ID, tenant ID, and the tags. This file is git-ignored.
 2. Make sure `az account show` is on the intended subscription.
 3. From `terraform/`, run `terraform init`, `terraform plan`, then `terraform apply`. Creating the Elastic Cloud deployment takes several minutes. If Terraform times out, wait five minutes, run `terraform refresh` and `terraform plan` instead of applying again.
-4. Authorize the Sentinel API connection once in the Azure portal: resource group, API connection `<prefix>-azuresentinel`, Edit API connection, Authorize, Save.
+4. Authorize the Sentinel API connection once (it serves all four Logic Apps) in the Azure portal: resource group, API connection `<prefix>-azuresentinel`, Edit API connection, Authorize, Save.
 5. Run `scripts/configure.sh` to check that the connectors, rule and Fleet policy exist.
-6. Run `scripts/validate.sh` to check the integration end to end (about 3 to 40 minutes).
+6. Run `scripts/validate.sh` to check the integration end to end (13 checks, about 5 to 60 minutes).
 
 ## Scripts
 
 | Script | Purpose |
 |---|---|
 | `scripts/configure.sh` | Verifies the deployed Elastic configuration and records endpoints in `shared/env.json`. |
-| `scripts/run_demo.sh` | Generates failed SSH logins on the VM and creates and pushes a Kibana case. |
+| `scripts/run_demo.sh` | Generates failed SSH logins on the VM. You create the Kibana case yourself. |
 | `scripts/validate.sh` | Runs the acceptance checks and writes a summary to `results/`. |
-| `scripts/reset-demo.sh` | Removes demo cases, data, alerts and Sentinel incidents. Keeps the infrastructure. |
+| `scripts/reset-demo.sh` | Removes ALL cases, security alerts and Sentinel incidents, plus the demo index. Keeps the infrastructure. |
 | `scripts/get-urls.sh` | Prints the Kibana, Fleet and Azure portal links. |
 
 See `scripts/README.md` and `config/README.md` for details.
@@ -122,7 +132,12 @@ Sentinel, Log Analytics, Event Hubs Standard, the spot VM and Elastic Cloud all 
 
 ```
 cd terraform
+curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: ApiKey $EC_API_KEY" https://api.elastic-cloud.com/api/v1/deployments   # must print 200
 terraform destroy
 ```
+
+`terraform destroy` reads `data.ec_stack` and fails with `root.unauthenticated: The supplied authentication is invalid` if `EC_API_KEY` is expired or revoked. Export a fresh key and re-run; destroy resumes from state.
+
+The Fleet agent policy has `skip_destroy = true` because enrolled agents block its deletion (HTTP 400, "Cannot delete an agent policy that is assigned to any active or inactive agents"); it is removed with the Elastic Cloud deployment.
 
 Then confirm the resource group no longer exists.

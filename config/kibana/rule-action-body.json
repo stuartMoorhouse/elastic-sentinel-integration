@@ -8,5 +8,6 @@
   "host_name": "{{context.alerts.0.host.name}}",
   "message": "Source IP {{context.alerts.0.source.ip}}: repeated failed SSH logins for multiple invalid users",
   "alert_id": "{{alert.id}}",
+  "alert_uuid": "{{alert.uuid}}",
   "kibana_alert_url": "{{kibanaBaseUrl}}/app/security/alerts/redirect/{{alert.uuid}}"
 }

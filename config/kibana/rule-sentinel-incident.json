@@ -1,0 +1,17 @@
+{
+  "name": "Microsoft Sentinel Incident Raised",
+  "description": "A new incident was raised in Microsoft Sentinel and exported to Elasticsearch through Log Analytics data export and Event Hubs. Incidents that Elastic itself created in Sentinel (from alerts or cases) are excluded so alerts do not loop between the two systems.",
+  "type": "query",
+  "language": "kuery",
+  "query": "azure.eventhub.Type : \"SecurityIncident\" and azure.eventhub.Status : \"New\" and not azure.eventhub.Title : Elastic* and not azure.eventhub.Description : \"Elastic Security case\"",
+  "index": ["logs-azure.eventhub-*"],
+  "interval": "1m",
+  "from": "now-15m",
+  "severity": "medium",
+  "risk_score": 47,
+  "enabled": true,
+  "tags": ["Source: Microsoft Sentinel", "Use Case: Threat Detection"],
+  "references": [],
+  "false_positives": [],
+  "note": "## Triage\n- The matching Sentinel incident is mirrored to a Kibana case tagged sentinel-incident-<guid>.\n- Status changes in either system are synchronised."
+}

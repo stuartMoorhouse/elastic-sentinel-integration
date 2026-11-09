@@ -12,6 +12,7 @@
     "host_name": {"type": "string"},
     "message": {"type": "string"},
     "alert_id": {"type": "string"},
+    "alert_uuid": {"type": "string"},
     "kibana_alert_url": {"type": "string"}
   },
   "required": ["rule_name", "alert_id"]

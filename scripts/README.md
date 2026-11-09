@@ -12,15 +12,15 @@ Terraform owns the Kibana connectors, detection rule and Fleet policy. The scrip
 4. `scripts/validate.sh`
 5. `scripts/reset-demo.sh` (optional, to repeat the demo)
 
-Acceptance check 10 (`terraform destroy` leaves nothing behind) is manual.
+Acceptance check 14 (`terraform destroy` leaves nothing behind) is manual.
 
 ## Scripts
 
 - `lib.sh`: sourced helpers (output loading, `es_curl`, `kibana_curl`, logging, Azure preflight, `poll`). Credentials are passed to curl through a temporary 0600 config file, never on the command line.
 - `configure.sh`: waits for Kibana and Fleet, verifies both connectors, the detection rule and a Fleet agent policy exist, then writes non-secret endpoints and `infra_ready`/`config_ready` to `shared/env.json`. Passwords are never written.
-- `run_demo.sh`: via `az vm run-command` (no SSH) makes 10 failed SSH logins for different invalid users on the VM (Sentinel Syslog data); creates a Kibana case using the case-management connector, moves it to in-progress and adds a comment. Saves `results/last_case.json` and `results/last_run.json`, sets `demo_executed`.
-- `validate.sh`: runs checks 1-9, printing PASS, FAIL or TIMEOUT, and writes `results/validation-<timestamp>.json`. Exits nonzero if any check is not PASS. Polling windows: alert 5 min, Log Analytics and incident 10 min, Event Hub to Elastic 15 min. Allow up to about 40 minutes in the worst case.
-- `reset-demo.sh [--yes]`: deletes cases tagged `elastic-sentinel-demo`, the demo index, alerts for the rule, and Sentinel incidents whose title starts with "Elastic Demo Case" or mentions Elastic or the rule name. Prompts unless `--yes`. Infrastructure is untouched.
+- `run_demo.sh`: via `az vm run-command` (no SSH) makes 10 failed SSH logins for different invalid users on the VM (Sentinel Syslog data). Does not create a case: you create and push the case yourself in Kibana. Saves `results/last_run.json`, sets `demo_executed`.
+- `validate.sh`: runs checks 1-13, printing PASS, FAIL, TIMEOUT or SKIP (check 7 is skipped until you have pushed a case), and writes `results/validation-<timestamp>.json`. Exits nonzero if any check is not PASS or SKIP. Polling windows: alert 5 min, Log Analytics and incident 10 min, Event Hub to Elastic 15 min. Checks 10 to 13 are the round-trip sync checks: a Sentinel incident creates a case (10), a Sentinel status change reaches the case (11), closing the case and pushing closes the incident (12), and closing the Sentinel incident behind an Elastic alert closes the alert (13). Each polls up to 5 minutes. Allow up to about 60 minutes in the worst case.
+- `reset-demo.sh [--yes]`: deletes ALL Kibana cases, ALL security alerts, ALL Sentinel incidents in the workspace, and the demo index. It repeats each delete until none are left. Prompts unless `--yes`. Infrastructure is untouched. Use only on this demo deployment.
 - `get-urls.sh`: prints Kibana, Elasticsearch and Fleet URLs, the `az vm run-command` hint and Azure portal links. The password is not printed; use `terraform -chdir=terraform output -raw elastic_password`.
 
 ## Assumptions about Kibana 9.x APIs
