@@ -77,7 +77,7 @@ variable "export_table_names" {
 variable "fleet_system_package_version" {
   description = "Fleet System integration package version (check https://epr.elastic.co/search?package=system&kibana.version=<stack>)"
   type        = string
-  default     = "3.4.0"
+  default     = "3.5.0"
 }
 
 variable "fleet_azure_package_version" {

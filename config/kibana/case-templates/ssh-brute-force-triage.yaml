@@ -1,0 +1,25 @@
+name: SSH brute force triage
+description: |
+  ## Triage
+  - Identify the source IP and whether it is internal, a known scanner, or external.
+  - Check whether any login from the same source succeeded after the failures.
+  - Review the usernames tried: invalid or generic names suggest enumeration.
+
+  ## Response
+  - Block the source at the network security group or firewall.
+  - If a login succeeded, treat the account as compromised: reset credentials and review the host.
+tags:
+  - ssh
+  - triage
+severity: high
+fields:
+  - name: customer
+    label: Customer
+    control: INPUT_TEXT
+    type: keyword
+  - name: accepted_behaviour
+    label: Accepted behaviour
+    control: TOGGLE
+    type: boolean
+    metadata:
+      default: false

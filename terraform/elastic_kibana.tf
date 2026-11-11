@@ -209,3 +209,28 @@ resource "elasticstack_kibana_security_detection_rule" "sentinel_incident" {
   false_positives = local.sentinel_rule_cfg.false_positives
   note            = local.sentinel_rule_cfg.note
 }
+
+# ---- Analyst workflow (runbook use case 6): Elastic Cases templates with custom fields ----
+# The elasticstack provider has no resource for Cases templates, so this runs an idempotent
+# script that creates or updates each YAML in config/kibana/case-templates/ through the Kibana
+# Cases API. It re-runs when a template file or the script changes. Nothing to undo on
+# destroy: the templates live in the Kibana deployment, which Terraform removes.
+resource "terraform_data" "case_templates" {
+  triggers_replace = {
+    script = filesha256("${path.module}/../scripts/apply-case-templates.sh")
+    templates = sha256(join(",", [
+      for f in sort(fileset("${path.module}/../config/kibana/case-templates", "*.yaml")) :
+      filesha256("${path.module}/../config/kibana/case-templates/${f}")
+    ]))
+    kibana = local.kibana_url
+  }
+
+  provisioner "local-exec" {
+    command = "${path.module}/../scripts/apply-case-templates.sh"
+    environment = {
+      KIBANA_URL      = local.kibana_url
+      KIBANA_USER     = ec_deployment.main.elasticsearch_username
+      KIBANA_PASSWORD = ec_deployment.main.elasticsearch_password
+    }
+  }
+}

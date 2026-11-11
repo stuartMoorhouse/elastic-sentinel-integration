@@ -8,6 +8,8 @@ Terraform that deploys a small Microsoft Sentinel environment on Azure and an El
 4. Sentinel incidents create and update Elastic cases, and status changes sync both ways.
 5. Closing a Sentinel incident that came from an Elastic alert closes or acknowledges the alert.
 
+A sixth use case shows the analyst workflow in Elastic Cases: Markdown notes, attached alerts, Lens charts and files, timeline, tags and search, templates and custom fields. It needs no extra infrastructure: Terraform creates the case templates and custom fields, and `scripts/seed-cases.sh` adds example cases.
+
 To run the demo, see [docs/runbook.md](docs/runbook.md).
 
 ## Architecture
@@ -69,6 +71,7 @@ To run the demo, see [docs/runbook.md](docs/runbook.md).
 | Alert webhook connector | Sends alert details to the alert Logic App. |
 | Detection rule "SSH Login Attempts for Multiple Invalid Users From One Source" | Threshold rule (10 or more failed SSH logins, 5 or more distinct users, same source, 5 minutes). High severity, mapped to MITRE T1110. Calls the alert connector. |
 | Detection rule "Microsoft Sentinel Incident Raised" | Query rule on the exported SecurityIncident rows. Excludes incidents Elastic created, so there is no alert loop. |
+| Case templates "Accepted customer behaviour" and "SSH brute force triage" | Created by `scripts/apply-case-templates.sh` (run from a `terraform_data` resource) from `config/kibana/case-templates/*.yaml`. Include custom fields. Used by runbook use case 6. |
 | Fleet agent policy with System and Azure Event Hub integrations | Enrolls the VM's Elastic Agent and ingests the Event Hub data. |
 
 ### Local files written by Terraform
@@ -110,6 +113,8 @@ All taggable resources carry the tags from the `tags` variable.
 | `scripts/configure.sh` | Verifies the deployed Elastic configuration and records endpoints in `shared/env.json`. |
 | `scripts/run_demo.sh` | Generates failed SSH logins on the VM. You create the Kibana case yourself. |
 | `scripts/validate.sh` | Runs the acceptance checks and writes a summary to `results/`. |
+| `scripts/apply-case-templates.sh` | Creates or updates the Cases templates from `config/kibana/case-templates/`. Run by Terraform; can be run by hand. |
+| `scripts/seed-cases.sh` | Creates example `accepted-behaviour` cases for use case 6 (idempotent, not pushed to Sentinel). Run after a reset. |
 | `scripts/reset-demo.sh` | Removes ALL cases, security alerts and Sentinel incidents, plus the demo index. Keeps the infrastructure. |
 | `scripts/get-urls.sh` | Prints the Kibana, Fleet and Azure portal links. |
 

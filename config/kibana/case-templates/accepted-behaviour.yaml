@@ -1,0 +1,30 @@
+name: Accepted customer behaviour
+description: |
+  ## Behaviour
+  Describe what the customer does and why it looks suspicious (source, accounts, timing).
+
+  ## Decision
+  Accepted. State exactly what is covered (hosts, source ranges, time windows).
+
+  ## Review
+  When to re-confirm with the customer.
+tags:
+  - accepted-behaviour
+severity: low
+fields:
+  - name: customer
+    label: Customer
+    control: INPUT_TEXT
+    type: keyword
+    validation:
+      required: true
+  - name: accepted_behaviour
+    label: Accepted behaviour
+    control: TOGGLE
+    type: boolean
+    metadata:
+      default: true
+  - name: approved_by
+    label: Approved by
+    control: INPUT_TEXT
+    type: keyword

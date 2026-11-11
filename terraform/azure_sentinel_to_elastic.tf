@@ -336,6 +336,36 @@ resource "azurerm_sentinel_automation_rule" "incident_updated" {
   triggers_on                = "Incidents"
   triggers_when              = "Updated"
 
+  # Sentinel requires a PropertyChanged condition on update triggers. The provider takes a JSON
+  # array of conditions (ANDed), so the OR is a single Boolean condition inside the array. The playbook mirrors
+  # status and severity; title changes are not triggers (the condition needs explicit values).
+  condition_json = jsonencode([{
+    conditionType = "Boolean"
+    conditionProperties = {
+      operator = "Or"
+      innerConditions = [
+        {
+          conditionType = "PropertyChanged"
+          conditionProperties = {
+            propertyName   = "IncidentStatus"
+            changeType     = "ChangedTo"
+            operator       = "Equals"
+            propertyValues = ["New", "Active", "Closed"]
+          }
+        },
+        {
+          conditionType = "PropertyChanged"
+          conditionProperties = {
+            propertyName   = "IncidentSeverity"
+            changeType     = "ChangedTo"
+            operator       = "Equals"
+            propertyValues = ["High", "Medium", "Low", "Informational"]
+          }
+        }
+      ]
+    }
+  }])
+
   action_playbook {
     logic_app_id = azapi_resource.sentinel_to_elastic.id
     order        = 1

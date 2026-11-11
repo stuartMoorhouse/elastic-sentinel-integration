@@ -1,6 +1,6 @@
 # Demo Runbook
 
-Five use cases, about 5 minutes each. Run them in any order. Use cases 4 and 5 show the sync in both directions.
+Six use cases, about 5 minutes each. Run them in any order. Use cases 4 and 5 show the sync in both directions. Use case 6 shows the analyst workflow in Elastic Cases.
 
 ## Before the demo
 
@@ -9,6 +9,7 @@ Five use cases, about 5 minutes each. Run them in any order. Use cases 4 and 5 s
    - Azure portal, Microsoft Sentinel, your workspace, Incidents
 2. Confirm the VM and data are healthy: run `scripts/validate.sh` the day before. All 13 checks should pass.
 3. Start clean: run `scripts/reset-demo.sh --yes`.
+4. For use case 6, run `scripts/seed-cases.sh` (after the reset). The case templates are created by Terraform.
 
 ## Use case 1: Elastic case creates a Sentinel incident
 
@@ -86,11 +87,38 @@ Sync summary:
 | Case status | Incident status changes | Automation rule (Created and Updated), playbook |
 | Alert status | Incident status changes | Automation rule, playbook calls the alert status API |
 
-Not synced: Elastic alert status changes made without a case (rule actions only fire on alert creation) and comments added in Sentinel.
+Not synced: Elastic alert status changes made without a case (rule actions only fire on alert creation), comments added in Sentinel, and case files, timelines, templates and custom fields.
+
+## Use case 6: Analyst case workflow in Elastic
+
+Shows how an analyst documents and finds work in Elastic Cases with few clicks, and how the case still reaches Sentinel.
+
+### Setup
+
+Terraform creates two case templates during `terraform apply` (definitions in `config/kibana/case-templates/`). Nothing to set up by hand. Each template pre-fills the case description, tags and severity, and carries its own custom fields:
+
+- "Accepted customer behaviour": tag `accepted-behaviour`, severity Low, description headings Behaviour, Decision and Review, custom fields `Customer` (required), `Accepted behaviour` (toggle, on) and `Approved by`.
+- "SSH brute force triage": tags `ssh` and `triage`, severity High, description from the rule's triage note, custom fields `Customer` and `Accepted behaviour` (toggle, off).
+
+To change a template, edit its YAML and run `terraform apply` (or `scripts/apply-case-templates.sh` with `KIBANA_URL`, `KIBANA_USER` and `KIBANA_PASSWORD` set). `scripts/reset-demo.sh` deletes cases but not templates.
+
+### Steps
+
+1. Run use case 2 so the SSH alert exists. Run `scripts/seed-cases.sh` beforehand.
+2. In Security, Alerts, open the alert flyout and choose Take action, Add to existing case (or Add to new case, choosing the "SSH brute force triage" template, which pre-fills the description and custom fields). The alert is attached in two clicks.
+3. Open the case. Edit the description in Markdown, add a comment with findings (headings, a list and a code block), and fill in the custom fields.
+4. From the alert flyout, choose Investigate in timeline. In the timeline pin the key events, add a note to a pinned event, save a query (for example `source.ip : "<attacker ip>"`), then use Attach to case so the timeline is on the case.
+5. Open a Lens visualization (for example failed SSH logins over time from `logs-system.auth-*`), save it, and from its menu choose Add to case. Drag a file (a screenshot or a text export) onto the case Activity tab to attach it.
+6. Show findability: in Cases, filter by tag `accepted-behaviour`, then search for `contoso`. The three seeded cases show the customer behaviours already accepted, searchable by the whole team. Create a new case from the "Accepted customer behaviour" template to show the structure it gives.
+7. Push the case to Sentinel with the push button. The incident has the title, status, severity and comments. The attached alert arrives as a comment. Files, the timeline and custom field values are not sent.
+
+Notes:
+- Seeded cases use connector "none", so they are never pushed to Sentinel.
+- Case templates with inline custom fields need Kibana 9.5 or later (this deployment runs 9.5.x).
 
 ## After the demo
 
-- Reset for the next run: `scripts/reset-demo.sh --yes`.
+- Reset for the next run: `scripts/reset-demo.sh --yes`, then `scripts/seed-cases.sh` for use case 6.
 - Tear everything down: `terraform -chdir=terraform destroy` (first confirm `EC_API_KEY` is valid; see README Cost and teardown).
 
 ## If something does not work
