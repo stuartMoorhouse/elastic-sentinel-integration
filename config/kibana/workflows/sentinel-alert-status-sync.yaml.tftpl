@@ -2,7 +2,8 @@ name: sentinel-alert-status-sync
 description: >-
   Elastic to Sentinel alert status sync. Every minute, finds Elastic Security alerts an analyst has
   acknowledged or closed in the last 3 minutes and sets the matching Microsoft Sentinel incident to
-  Active or Closed. The incident is found by the Sentinel incident id on the alert (alerts raised from
+  Active or Closed, calling the Azure Resource Manager API through a Kibana HTTP connector that holds the
+  Entra app's OAuth credentials (no secret in this definition). The incident is found by the Sentinel incident id on the alert (alerts raised from
   Sentinel incidents) or by the [alert-uuid:...] marker in the incident description (alerts Elastic
   sent to Sentinel). Incidents already in the target state are left alone.
 enabled: true
@@ -14,9 +15,6 @@ triggers:
     with:
       every: "1m"
 consts:
-  tenant_id: "${tenant_id}"
-  client_id: "${client_id}"
-  client_secret: "${client_secret}"
   incidents_url: "${incidents_url}"
 steps:
   - name: changed_alerts
@@ -35,16 +33,6 @@ steps:
             - terms:
                 kibana.alert.rule.name: ${rule_names_json}
 
-  - name: get_token
-    type: http
-    if: "steps.changed_alerts.output.hits.total.value > 0"
-    with:
-      url: "https://login.microsoftonline.com/{{ consts.tenant_id }}/oauth2/v2.0/token"
-      method: POST
-      headers:
-        Content-Type: "application/x-www-form-urlencoded"
-      body: "grant_type=client_credentials&client_id={{ consts.client_id }}&client_secret={{ consts.client_secret }}&scope=https%3A%2F%2Fmanagement.azure.com%2F.default"
-
   - name: sync_each_alert
     type: foreach
     if: "steps.changed_alerts.output.hits.total.value > 0"
@@ -62,17 +50,17 @@ steps:
       # --- alerts raised from a Sentinel incident: the incident id is on the alert ---
       - name: get_by_id
         type: http
+        connector-id: "${connector_id}"
         if: "variables.has_name : \"yes\""
         on-failure:
           continue: true
         with:
           url: "{{ consts.incidents_url }}/{{ variables.incident_name }}?api-version=2023-02-01"
           method: GET
-          headers:
-            Authorization: "Bearer {{ steps.get_token.output.data.access_token }}"
 
       - name: update_by_id
         type: http
+        connector-id: "${connector_id}"
         if: "variables.has_name : \"yes\" and steps.get_by_id.output.status : 200 and ((variables.target_status : \"Closed\" and not steps.get_by_id.output.data.properties.status : \"Closed\") or (variables.target_status : \"Active\" and steps.get_by_id.output.data.properties.status : \"New\"))"
         on-failure:
           continue: true
@@ -80,7 +68,6 @@ steps:
           url: "{{ consts.incidents_url }}/{{ variables.incident_name }}?api-version=2023-02-01"
           method: PUT
           headers:
-            Authorization: "Bearer {{ steps.get_token.output.data.access_token }}"
             Content-Type: "application/json"
           # The incident PUT replaces the whole incident, so send back everything we read
           # (description, labels, owner) and change only the status and classification.
@@ -89,17 +76,17 @@ steps:
       # --- alerts Elastic sent to Sentinel: find the incident by the alert uuid in its description ---
       - name: find_by_marker
         type: http
+        connector-id: "${connector_id}"
         if: "variables.has_name : \"no\""
         on-failure:
           continue: true
         with:
           url: "{{ consts.incidents_url }}?api-version=2023-02-01&$filter=contains(properties/description,'[alert-uuid:{{ foreach.item._id }}]')"
           method: GET
-          headers:
-            Authorization: "Bearer {{ steps.get_token.output.data.access_token }}"
 
       - name: update_found
         type: http
+        connector-id: "${connector_id}"
         if: "variables.has_name : \"no\" and steps.find_by_marker.output.data.value.0.name : * and ((variables.target_status : \"Closed\" and not steps.find_by_marker.output.data.value.0.properties.status : \"Closed\") or (variables.target_status : \"Active\" and steps.find_by_marker.output.data.value.0.properties.status : \"New\"))"
         on-failure:
           continue: true
@@ -107,7 +94,6 @@ steps:
           url: "{{ consts.incidents_url }}/{{ steps.find_by_marker.output.data.value[0].name }}?api-version=2023-02-01"
           method: PUT
           headers:
-            Authorization: "Bearer {{ steps.get_token.output.data.access_token }}"
             Content-Type: "application/json"
           # The incident PUT replaces the whole incident, so send back everything we read
           # (description, labels, owner) and change only the status and classification.

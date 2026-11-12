@@ -173,7 +173,7 @@ The problem this solves: analysts triage in Elastic, then have to log into the o
 
 Notes:
 - The workflow runs every minute and looks at alerts changed in the last 3 minutes. It leaves an incident alone if it is already in the target state or already Closed, so it does not fight use case 5.
-- It runs as an Entra app registration (`elastic-sentinel-elastic-workflows`) with the Microsoft Sentinel Responder role on the workspace. The client secret expires after 90 days (rerun `terraform apply` after replacing it).
+- It runs as an Entra app registration (`elastic-sentinel-elastic-workflows`) with the Microsoft Sentinel Responder role on the workspace. Its client secret is held in the Kibana HTTP connector "Azure Resource Manager (Sentinel workflow)" (Stack Management, Connectors), not in the workflow, so it is not visible in the workflow definition. The secret expires after 90 days; to rotate it run `terraform apply -replace=azuread_application_password.elastic_workflows`.
 - A Defender or WithSecure version uses the same pattern: only the final `http` step changes (for example a PATCH to the Microsoft Graph `security/alerts_v2/{id}` endpoint, which needs the `SecurityAlert.ReadWrite.All` application permission). That version is not built here.
 - Do not connect the workspace to the Defender portal. Incidents created through the Sentinel API, as use cases 1, 2 and 7 do, are not synced into the Defender incident queue.
 
@@ -191,5 +191,5 @@ Notes:
 | No alert in Kibana | Wait 2 minutes (the rule runs every minute). Check the rule is enabled under Security, Rules. The rule needs 10 or more failures from 5 or more users in 5 minutes. |
 | `run_demo.sh` says the VM is not running | Spot VMs can be evicted. Start it with `az vm start -g elastic-sentinel-rg -n elastic-sentinel-vm`. |
 | No Elastic alert for the Sentinel incident | Wait up to 15 minutes. Check that the incident title does not contain "Elastic", that the rule "Microsoft Sentinel Incident Raised" is enabled (Security, Rules), that the agent is online in Fleet, and that the Event Hub export reached Elastic (use case 3). |
-| The incident does not close after closing the alert | Check the workflow run history (Kibana, Workflows, `sentinel-alert-status-sync`) and that the workflow is enabled. A 401 or 403 from Sentinel means the workflow's Entra app has lost its role or its client secret expired (90 days). |
+| The incident does not close after closing the alert | Check the workflow run history (Kibana, Workflows, `sentinel-alert-status-sync`) and that the workflow is enabled. A 401 or 403 from Sentinel means the workflow's Entra app has lost its role or its client secret expired (90 days); rotate it as described under use case 7. |
 | No Event Hub data in Elastic | Wait up to 15 minutes. Check the agent is online under Fleet. |

@@ -54,7 +54,7 @@ To run the demo, see [docs/runbook.md](docs/runbook.md).
 | Event Hubs namespace (Standard), event hub, consumer group, listen authorization rule | Carries exported Sentinel data to Elastic. |
 | Log Analytics data export rule | Exports the Syslog, SecurityAlert and SecurityIncident tables to the event hub. |
 | Storage account | Checkpoint storage for the Elastic Event Hub integration. |
-| Entra app registration, client secret, Microsoft Sentinel Responder role | Identity the Elastic workflow uses to update Sentinel incidents. The secret expires after 90 days. |
+| Entra app registration, client secret, Microsoft Sentinel Responder role | Identity the Elastic workflow uses to update Sentinel incidents. The secret is stored in the Kibana HTTP connector and expires after 90 days. |
 | User-assigned managed identity, role assignment | One identity shared by the four Logic Apps, with the Microsoft Sentinel Contributor role on the workspace. Created before the Logic Apps. |
 | Sentinel API connection | Lets the Logic Apps talk to Sentinel using the managed identity. No portal authorization is needed. |
 | Logic App: upsert incident | Creates, updates and comments on Sentinel incidents (called by the Kibana case connector). |
@@ -74,6 +74,7 @@ To run the demo, see [docs/runbook.md](docs/runbook.md).
 | Detection rule "SSH Login Attempts for Multiple Invalid Users From One Source" | Threshold rule (10 or more failed SSH logins, 5 or more distinct users, same source, 5 minutes). High severity, mapped to MITRE T1110. Calls the alert connector. |
 | Detection rule "Microsoft Sentinel Incident Raised" | Query rule on the exported SecurityIncident rows. Excludes incidents Elastic created, so there is no alert loop. |
 | Case templates "Accepted customer behaviour" and "SSH brute force triage" | Created by `scripts/apply-case-templates.sh` (run from a `terraform_data` resource) from `config/kibana/case-templates/*.yaml`. Include custom fields. Used by runbook use case 6. |
+| HTTP connector "Azure Resource Manager (Sentinel workflow)" | Holds the Entra app's OAuth client credentials (encrypted by Kibana) so the workflow has no secret in its definition. |
 | Workflow `sentinel-alert-status-sync` | Elastic Workflow (every minute) that sets the Sentinel incident to Active or Closed when an analyst acknowledges or closes the alert in Elastic. Runbook use case 7. |
 | Fleet agent policy with System and Azure Event Hub integrations | Enrolls the VM's Elastic Agent and ingests the Event Hub data. |
 
