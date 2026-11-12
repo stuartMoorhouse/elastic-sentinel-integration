@@ -8,8 +8,8 @@ The main demo (about 15 minutes) tells one story: an alert arrives from Sentinel
    - Kibana (log in as `elastic`; the password is `terraform -chdir=terraform output -raw elastic_password`)
    - Azure portal, Microsoft Sentinel, your workspace, Incidents
 2. Confirm the VM and data are healthy: run `scripts/validate.sh` the day before. All 13 checks should pass.
-3. Start clean: run `scripts/reset-demo.sh --yes`.
-4. Run `scripts/seed-cases.sh` (after the reset) so there are accepted-behaviour cases to find. The case templates are created by Terraform.
+3. Start clean: run `scripts/reset-demo.sh --yes`. It clears alerts, cases, Timelines, notes, rule exceptions and Sentinel incidents, and re-seeds the example accepted-behaviour cases. Add `--incident` to also create a fresh Sentinel incident and wait for its Elastic alert (then skip that step below).
+4. The reset has already re-created the accepted-behaviour cases to find (`scripts/seed-cases.sh`). The case templates are created by Terraform and survive a reset.
 5. For the main demo, 15 minutes or more beforehand:
    - Run `scripts/run_demo.sh` so the VM's authentication logs have a burst of failed SSH logins for Timeline to show.
    - Run `scripts/create-sentinel-incident.sh --wait`. It creates a Sentinel incident and waits for the Elastic alert (usually a few minutes, up to 15).
@@ -179,7 +179,7 @@ Notes:
 
 ## After the demo
 
-- Reset for the next run: `scripts/reset-demo.sh --yes`, then `scripts/seed-cases.sh` for use case 6.
+- Reset for the next run: `scripts/reset-demo.sh --yes` (add `--incident` for a fresh Sentinel incident). It is a complete refresh: nothing from this run (alerts, cases, Timelines, notes, exceptions, incidents) is left to confuse the next one.
 - Tear everything down: `terraform -chdir=terraform destroy` (first confirm `EC_API_KEY` is valid; see README Cost and teardown).
 
 ## If something does not work

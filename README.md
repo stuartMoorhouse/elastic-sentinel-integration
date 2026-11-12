@@ -119,7 +119,7 @@ All taggable resources carry the tags from the `tags` variable.
 | `scripts/create-sentinel-incident.sh` | Creates a Sentinel incident for the main demo and optionally waits for the matching Elastic alert (`--wait`). |
 | `scripts/apply-case-templates.sh` | Creates or updates the Cases templates from `config/kibana/case-templates/`. Run by Terraform; can be run by hand. |
 | `scripts/seed-cases.sh` | Creates example `accepted-behaviour` cases for use case 6 (idempotent, not pushed to Sentinel). Run after a reset. |
-| `scripts/reset-demo.sh` | Removes ALL cases, security alerts and Sentinel incidents, plus the demo index. Keeps the infrastructure. |
+| `scripts/reset-demo.sh` | Complete refresh: removes ALL cases, security alerts, analyst Timelines and templates, notes, rule exceptions, exported Sentinel incident rows, Sentinel incidents and the demo index, then re-seeds the example cases (`--incident` also creates a fresh Sentinel incident). Keeps the infrastructure, rules, case templates, workflow and the prebuilt Timeline templates. |
 | `scripts/get-urls.sh` | Prints the Kibana, Fleet and Azure portal links. |
 
 See `scripts/README.md` and `config/README.md` for details.
