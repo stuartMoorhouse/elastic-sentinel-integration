@@ -38,8 +38,12 @@ resource "elasticstack_kibana_action_connector" "azure_arm" {
   connector_type_id = ".http"
 
   config = jsonencode({
-    url            = "https://management.azure.com"
-    authType       = "webhook-oauth2-client-credentials"
+    url      = "https://management.azure.com"
+    authType = "webhook-oauth2-client-credentials"
+    # Kibana adds these defaults to the stored config. State them, or the provider reports
+    # "inconsistent result after apply" because the planned config lacks them.
+    hasAuth        = true
+    hasProxyAuth   = false
     accessTokenUrl = "https://login.microsoftonline.com/${var.tenant_id}/oauth2/v2.0/token"
     clientId       = azuread_application.elastic_workflows.client_id
     scope          = "https://management.azure.com/.default"
