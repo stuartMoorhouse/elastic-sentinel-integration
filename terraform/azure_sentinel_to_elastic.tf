@@ -108,7 +108,9 @@ locals {
                     uri     = "@{parameters('kibana_url')}/api/detection_engine/signals/status"
                     headers = local.kb_headers
                     body = {
-                      signal_ids = ["@substring(${local.inc}?['description'],add(indexOf(${local.inc}?['description'],'[alert-uuid:'),12),36)"]
+                      # The marker holds the alert's id (a 64 character hash on Kibana 9.5, not a 36 character UUID),
+                      # so take everything between "[alert-uuid:" and the closing bracket.
+                      signal_ids = ["@first(split(last(split(${local.inc}?['description'],'[alert-uuid:')),']'))"]
                       status     = "@if(equals(${local.inc}?['status'],'closed'),'closed','acknowledged')"
                     }
                     authentication = local.kb_auth
@@ -249,6 +251,11 @@ resource "azapi_resource" "sentinel_to_elastic" {
   parent_id = azurerm_resource_group.main.id
   tags      = local.tags
 
+  identity {
+    type         = "UserAssigned"
+    identity_ids = [azurerm_user_assigned_identity.logicapps.id]
+  }
+
   body = {
     properties = {
       state = "Enabled"
@@ -295,6 +302,8 @@ resource "azapi_resource" "sentinel_to_elastic" {
       }
     }
   }
+
+  depends_on = [azurerm_role_assignment.logicapps_sentinel]
 }
 
 # Sentinel runs automation-rule playbooks as the "Azure Security Insights" service principal,

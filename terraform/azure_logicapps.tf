@@ -14,21 +14,46 @@ locals {
   status_expr = "@if(equals(triggerBody()?['status'],'closed'),'Closed',if(equals(triggerBody()?['status'],'in-progress'),'Active','New'))"
 }
 
-# Sentinel API connection (OAuth). Created by Terraform but must be authorized ONCE in the
-# portal after apply: Resource group > API connection "${var.prefix}-azuresentinel" >
-# Edit API connection > Authorize > Save. No role assignments are needed (the connection
-# runs as the person who authorizes it).
+# One user-assigned managed identity shared by all four Logic Apps. It is created and given its
+# role BEFORE the workflows exist: the playbook's incident trigger subscribes to Sentinel when
+# the workflow is created, so the identity must already be allowed to call Sentinel. This
+# replaces the OAuth connection that had to be authorized by a person in the portal (that
+# token came from the person's home tenant and was rejected when the account is a guest).
+resource "azurerm_user_assigned_identity" "logicapps" {
+  name                = "${var.prefix}-logicapps-id"
+  location            = azurerm_resource_group.main.location
+  resource_group_name = azurerm_resource_group.main.name
+  tags                = local.tags
+}
+
+# Reads and writes incidents, comments and triggers (create, update, comment, get).
+resource "azurerm_role_assignment" "logicapps_sentinel" {
+  scope                = azurerm_log_analytics_workspace.main.id
+  role_definition_name = "Microsoft Sentinel Contributor"
+  principal_id         = azurerm_user_assigned_identity.logicapps.principal_id
+}
+
+# Sentinel API connection using managed identity auth (no portal authorization step).
+# The "Alternative" parameter value type is what makes the Sentinel connector accept the
+# workflows' managed identity: the connector advertises no managedIdentityAuth parameter
+# set, and the workflows are rejected with WorkflowManagedIdentityConfigurationInvalid.
+# The name differs from the earlier OAuth connection, so Terraform replaces it.
 resource "azapi_resource" "sentinel_connection" {
   type      = "Microsoft.Web/connections@2016-06-01"
-  name      = "${var.prefix}-azuresentinel"
+  name      = "${var.prefix}-sentinel-msi"
   location  = azurerm_resource_group.main.location
   parent_id = azurerm_resource_group.main.id
   tags      = local.tags
 
+  # parameterValueType is accepted by the Azure API but missing from azapi's embedded schema.
+  schema_validation_enabled = false
+
   body = {
     properties = {
-      displayName = "${var.prefix}-azuresentinel"
-      api         = { id = local.sentinel_api_id }
+      displayName           = "${var.prefix}-sentinel-msi"
+      api                   = { id = local.sentinel_api_id }
+      customParameterValues = {}
+      parameterValueType    = "Alternative"
     }
   }
 }
@@ -39,6 +64,12 @@ locals {
       connectionId   = azapi_resource.sentinel_connection.id
       connectionName = "azuresentinel"
       id             = local.sentinel_api_id
+      connectionProperties = {
+        authentication = {
+          type     = "ManagedServiceIdentity"
+          identity = azurerm_user_assigned_identity.logicapps.id
+        }
+      }
     }
   })
 }
@@ -51,6 +82,13 @@ resource "azurerm_logic_app_workflow" "incident_upsert" {
 
   workflow_parameters = { "$connections" = jsonencode({ type = "Object", defaultValue = {} }) }
   parameters          = { "$connections" = local.connections_param }
+
+  identity {
+    type         = "UserAssigned"
+    identity_ids = [azurerm_user_assigned_identity.logicapps.id]
+  }
+
+  depends_on = [azurerm_role_assignment.logicapps_sentinel]
 }
 
 resource "azurerm_logic_app_workflow" "incident_get" {
@@ -61,6 +99,13 @@ resource "azurerm_logic_app_workflow" "incident_get" {
 
   workflow_parameters = { "$connections" = jsonencode({ type = "Object", defaultValue = {} }) }
   parameters          = { "$connections" = local.connections_param }
+
+  identity {
+    type         = "UserAssigned"
+    identity_ids = [azurerm_user_assigned_identity.logicapps.id]
+  }
+
+  depends_on = [azurerm_role_assignment.logicapps_sentinel]
 }
 
 resource "azurerm_logic_app_workflow" "alert" {
@@ -71,6 +116,13 @@ resource "azurerm_logic_app_workflow" "alert" {
 
   workflow_parameters = { "$connections" = jsonencode({ type = "Object", defaultValue = {} }) }
   parameters          = { "$connections" = local.connections_param }
+
+  identity {
+    type         = "UserAssigned"
+    identity_ids = [azurerm_user_assigned_identity.logicapps.id]
+  }
+
+  depends_on = [azurerm_role_assignment.logicapps_sentinel]
 }
 
 # ============ (a) create / update / comment incident ============

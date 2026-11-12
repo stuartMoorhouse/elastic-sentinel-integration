@@ -115,7 +115,7 @@ check6() {
   if poll 600 30 _la_rows "SecurityIncident | where CreatedTime >= datetime($RUN_ISO) | where Title startswith 'Elastic alert' | take 5"; then
     record 6 "$name" PASS "incident=$(jq -r '.[0].Title' <<<"$LA_JSON")"
   else
-    record 6 "$name" TIMEOUT "no 'Elastic alert' SecurityIncident within 10 min (is the Sentinel API connection authorized?)"
+    record 6 "$name" TIMEOUT "no 'Elastic alert' SecurityIncident within 10 min (check the alert Logic App run history; does its managed identity have the Sentinel Contributor role?)"
   fi
 }
 

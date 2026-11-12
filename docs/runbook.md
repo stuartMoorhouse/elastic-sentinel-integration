@@ -1,6 +1,6 @@
 # Demo Runbook
 
-Six use cases, about 5 minutes each. Run them in any order. Use cases 4 and 5 show the sync in both directions. Use case 6 shows the analyst workflow in Elastic Cases.
+The main demo (about 15 minutes) tells one story: an alert arrives from Sentinel, the analyst investigates it in Timeline and keeps the findings, and closing the alert in Elastic closes the incident in Sentinel. Use cases 1 to 7 are shorter supporting modules (about 5 minutes each) that you can run in any order. Use cases 4 and 5 show the sync from Sentinel to Elastic, use case 6 the analyst workflow in Elastic Cases, and use case 7 the same close-once flow for an alert that Elastic raised itself.
 
 ## Before the demo
 
@@ -9,7 +9,50 @@ Six use cases, about 5 minutes each. Run them in any order. Use cases 4 and 5 sh
    - Azure portal, Microsoft Sentinel, your workspace, Incidents
 2. Confirm the VM and data are healthy: run `scripts/validate.sh` the day before. All 13 checks should pass.
 3. Start clean: run `scripts/reset-demo.sh --yes`.
-4. For use case 6, run `scripts/seed-cases.sh` (after the reset). The case templates are created by Terraform.
+4. Run `scripts/seed-cases.sh` (after the reset) so there are accepted-behaviour cases to find. The case templates are created by Terraform.
+5. For the main demo, 15 minutes or more beforehand:
+   - Run `scripts/run_demo.sh` so the VM's authentication logs have a burst of failed SSH logins for Timeline to show.
+   - Run `scripts/create-sentinel-incident.sh --wait`. It creates a Sentinel incident and waits for the Elastic alert (usually a few minutes, up to 15).
+   - In Kibana, open Workflows and check `sentinel-alert-status-sync` is enabled.
+6. Do not connect the workspace to the Defender portal. Incidents created through the Sentinel API are not synced into the Defender queue.
+
+## Main demo: a Sentinel alert, investigated and closed in Elastic
+
+The story: Elastic can be the analyst's one console for alerts from other tools. The analyst investigates in Elastic, records what they found so the whole team can search it later, and closes the alert once. The incident in Sentinel closes on its own.
+
+### Part 1: An alert comes from Sentinel
+
+1. In the Sentinel tab, open Incidents. "Suspicious SSH activity on Linux host (demo)" is there with status New. Sentinel raised it; nothing in Elastic created it.
+2. In Kibana, go to Security, Alerts and filter `kibana.alert.rule.name: "Microsoft Sentinel Incident Raised"`. The same incident is an Elastic alert. Open it and show the Sentinel fields on the alert (`azure.eventhub.Title`, `Description`, `Severity`, `IncidentUrl`). The path is Log Analytics export, Event Hub, Elastic Agent, then a detection rule, so it arrives a few minutes after Sentinel raised it.
+
+### Part 2: Investigate in Timeline and keep the findings
+
+3. In the alert flyout, choose Take action, then Investigate in timeline.
+4. Look at what the host was doing. In the Timeline query bar enter `host.name : "elastic-sentinel-vm" and event.category : "authentication"`, and set the time range to cover the last day. The failed SSH logins for invalid users are the burst the incident describes. The source (127.0.0.1) and the pattern match the customer's known vulnerability scan.
+5. Pin the events that matter (the pin icon on each row; they appear on the Pinned tab). Add a note to a pinned event, for example "Burst of failed logins from the scanner address, matches the nightly vulnerability scan. See the accepted-behaviour case." Add a note on the Timeline itself summarizing the conclusion.
+6. Save the Timeline with a clear title and description (for example "Accepted: vulnerability scan SSH noise"). Use the star to favorite it.
+7. Make it reusable. On the Timelines page, open the row's All actions menu and choose **Create template from timeline**. A Timeline template can be attached to a detection rule, so the next alert from that rule opens in Timeline with the same investigation ready (dropzone values are filled from the alert).
+8. Attach the findings to a case. In the Timeline, choose Attach to case, then Attach to new case. Create the case from the "Accepted customer behaviour" template (tag `accepted-behaviour`, fill in Customer and Approved by). Then add the alert to the same case from the alert flyout (Take action, Add to case).
+9. Mark the alert as a false positive: in the alert flyout, Take action, Apply alert tags, **False Positive**. Tags are filterable on the Alerts page.
+10. Optional: Take action, **Add rule exception**, with a comment explaining the accepted behaviour. This stops repeat alerts as well as documenting them. Keep it narrow and remove it afterwards (Rules, the rule's exceptions), because `create-sentinel-incident.sh` always uses the same incident title and the next demo run would not alert.
+
+### Part 3: Close once, closed in Sentinel
+
+11. Close the alert: change the status to Closed and choose the reason **False positive**.
+12. Wait about 2 minutes. The workflow `sentinel-alert-status-sync` runs every minute. In Kibana, open Workflows, then that workflow, to show the run and its steps.
+13. Refresh Incidents in the Sentinel tab. The incident is **Closed**, classification False positive. Nobody logged into Sentinel to do that.
+
+### Part 4: The finding is now searchable by the whole team
+
+14. Cases: filter by tag `accepted-behaviour`. The new case sits with the seeded accepted-behaviour cases, with the alert and Timeline attached. Search by customer name or text.
+15. Timelines: search for the Timeline or the template by title. The pinned events and notes are saved with it.
+16. Notes: open the Notes page (search for "Notes" in the global search bar) and search for text from your note. Every note across alerts, events and Timelines is listed there.
+17. Alerts: filter `kibana.alert.workflow_tags: "False Positive"` to see all alerts analysts classified this way.
+
+Notes:
+- Only the alert status and close reason are synced to Sentinel (Active or Closed, with the classification). Notes, Timelines, tags and cases stay in Elastic.
+- There is no single knowledge-base object. Cases, notes, Timelines and alert tags are searched in their own places, so agree tag names (for example `accepted-behaviour`) and use them consistently.
+- Elastic Workflows can also be run from an alert (Take action, Run workflow) for on-demand response, and Agent Builder can answer questions over this history. Neither is configured in this demo.
 
 ## Use case 1: Elastic case creates a Sentinel incident
 
@@ -86,8 +129,9 @@ Sync summary:
 | Case | Incident created in Sentinel | Automation rule, playbook calls the Cases API |
 | Case status | Incident status changes | Automation rule (Created and Updated), playbook |
 | Alert status | Incident status changes | Automation rule, playbook calls the alert status API |
+| Alert acknowledged or closed in Elastic | Incident Active or Closed | Elastic Workflow polls every minute, calls the Sentinel API |
 
-Not synced: Elastic alert status changes made without a case (rule actions only fire on alert creation), comments added in Sentinel, and case files, timelines, templates and custom fields.
+Not synced: comments added in Sentinel, and case files, timelines, templates and custom fields.
 
 ## Use case 6: Analyst case workflow in Elastic
 
@@ -116,6 +160,23 @@ Notes:
 - Seeded cases use connector "none", so they are never pushed to Sentinel.
 - Case templates with inline custom fields need Kibana 9.5 or later (this deployment runs 9.5.x).
 
+## Use case 7: Close an alert in Elastic, closed in Sentinel
+
+The problem this solves: analysts triage in Elastic, then have to log into the other portal to close or acknowledge the same alert. An Elastic Workflow (`sentinel-alert-status-sync`, deployed by Terraform) does it for them. Together with use case 5 (Sentinel to Elastic) the status stays aligned in both directions.
+
+1. Run use case 2 so an alert and its "Elastic alert: ..." incident exist. Check the incident in Sentinel: status New.
+2. In Kibana, go to Security, Alerts. Open the alert and change its status to **Acknowledged** (alert flyout, Take action, or the row menu).
+3. Within about 2 minutes the Sentinel incident becomes **Active**. No one touched Sentinel.
+4. Close the alert in Elastic and choose a reason (for example False positive). Within about 2 minutes the incident is **Closed** with classification False positive.
+5. Show how it works: in Kibana, go to Workflows and open `sentinel-alert-status-sync`. The execution history shows a run every minute and the steps that updated the incident.
+6. Optional: the same applies to alerts raised from a Sentinel incident (rule "Microsoft Sentinel Incident Raised"). The alert carries the incident id, so closing it in Elastic closes that incident.
+
+Notes:
+- The workflow runs every minute and looks at alerts changed in the last 3 minutes. It leaves an incident alone if it is already in the target state or already Closed, so it does not fight use case 5.
+- It runs as an Entra app registration (`elastic-sentinel-elastic-workflows`) with the Microsoft Sentinel Responder role on the workspace. The client secret expires after 90 days (rerun `terraform apply` after replacing it).
+- A Defender or WithSecure version uses the same pattern: only the final `http` step changes (for example a PATCH to the Microsoft Graph `security/alerts_v2/{id}` endpoint, which needs the `SecurityAlert.ReadWrite.All` application permission). That version is not built here.
+- Do not connect the workspace to the Defender portal. Incidents created through the Sentinel API, as use cases 1, 2 and 7 do, are not synced into the Defender incident queue.
+
 ## After the demo
 
 - Reset for the next run: `scripts/reset-demo.sh --yes`, then `scripts/seed-cases.sh` for use case 6.
@@ -125,8 +186,10 @@ Notes:
 
 | Symptom | Fix |
 |---|---|
-| Push in Kibana fails or no incident appears | The Sentinel API connection is not authorized. In the Azure portal, open it, choose Edit API connection, Authorize, Save. |
-| Sentinel incident does not become a case | Check the playbook run history (Logic App `elastic-sentinel-sentinel-incident-to-elastic`) and that both automation rules are enabled (Sentinel, Automation). The Sentinel API connection must be authorized and the role assignment on the resource group can take a few minutes to take effect. |
+| Push in Kibana fails or no incident appears | A Logic App cannot call Sentinel. Open the Logic App run history (for example `elastic-sentinel-elastic-upsert-incident`) and read the failed action. A 401 or 403 means the managed identity `elastic-sentinel-logicapps-id` is missing the Microsoft Sentinel Contributor role on the workspace (role assignments can take a few minutes to apply). |
+| Sentinel incident does not become a case | Check the playbook run history (Logic App `elastic-sentinel-sentinel-incident-to-elastic`) and that both automation rules are enabled (Sentinel, Automation). Both role assignments (the Sentinel automation role on the resource group and the managed identity role on the workspace) can take a few minutes to take effect. |
 | No alert in Kibana | Wait 2 minutes (the rule runs every minute). Check the rule is enabled under Security, Rules. The rule needs 10 or more failures from 5 or more users in 5 minutes. |
 | `run_demo.sh` says the VM is not running | Spot VMs can be evicted. Start it with `az vm start -g elastic-sentinel-rg -n elastic-sentinel-vm`. |
+| No Elastic alert for the Sentinel incident | Wait up to 15 minutes. Check that the incident title does not contain "Elastic", that the rule "Microsoft Sentinel Incident Raised" is enabled (Security, Rules), that the agent is online in Fleet, and that the Event Hub export reached Elastic (use case 3). |
+| The incident does not close after closing the alert | Check the workflow run history (Kibana, Workflows, `sentinel-alert-status-sync`) and that the workflow is enabled. A 401 or 403 from Sentinel means the workflow's Entra app has lost its role or its client secret expired (90 days). |
 | No Event Hub data in Elastic | Wait up to 15 minutes. Check the agent is online under Fleet. |
